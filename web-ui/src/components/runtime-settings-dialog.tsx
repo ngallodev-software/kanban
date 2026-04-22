@@ -373,6 +373,7 @@ export function RuntimeSettingsDialog({
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>("unsupported");
 	const [shortcuts, setShortcuts] = useState<RuntimeProjectShortcut[]>([]);
+	const [boardPath, setBoardPath] = useState("");
 	const [commitPromptTemplate, setCommitPromptTemplate] = useState("");
 	const [openPrPromptTemplate, setOpenPrPromptTemplate] = useState("");
 	const [selectedPromptVariant, setSelectedPromptVariant] = useState<TaskGitAction>("commit");
@@ -443,6 +444,7 @@ export function RuntimeSettingsDialog({
 	const initialAgentAutonomousModeEnabled = config?.agentAutonomousModeEnabled ?? true;
 	const initialReadyForReviewNotificationsEnabled = config?.readyForReviewNotificationsEnabled ?? true;
 	const initialShortcuts = config?.shortcuts ?? [];
+	const initialBoardPath = config?.boardPath ?? "";
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
 	const initialOpenPrPromptTemplate = config?.openPrPromptTemplate ?? "";
 	const clineSettings = useRuntimeSettingsClineController({
@@ -482,6 +484,9 @@ export function RuntimeSettingsDialog({
 		if (!areRuntimeProjectShortcutsEqual(shortcuts, initialShortcuts)) {
 			return true;
 		}
+		if (boardPath.trim() !== initialBoardPath.trim()) {
+			return true;
+		}
 		if (
 			normalizeTemplateForComparison(commitPromptTemplate) !==
 			normalizeTemplateForComparison(initialCommitPromptTemplate)
@@ -494,12 +499,14 @@ export function RuntimeSettingsDialog({
 		);
 	}, [
 		agentAutonomousModeEnabled,
+		boardPath,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
 		config,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
+		initialBoardPath,
 		initialCommitPromptTemplate,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
@@ -520,11 +527,13 @@ export function RuntimeSettingsDialog({
 		setAgentAutonomousModeEnabled(config?.agentAutonomousModeEnabled ?? true);
 		setReadyForReviewNotificationsEnabled(config?.readyForReviewNotificationsEnabled ?? true);
 		setShortcuts(config?.shortcuts ?? []);
+		setBoardPath(config?.boardPath ?? "");
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
 		setOpenPrPromptTemplate(config?.openPrPromptTemplate ?? "");
 		setSaveError(null);
 	}, [
 		config?.agentAutonomousModeEnabled,
+		config?.boardPath,
 		config?.commitPromptTemplate,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
@@ -702,6 +711,7 @@ export function RuntimeSettingsDialog({
 			agentAutonomousModeEnabled,
 			readyForReviewNotificationsEnabled,
 			shortcuts,
+			boardPath: boardPath.trim().length > 0 ? boardPath.trim() : null,
 			commitPromptTemplate,
 			openPrPromptTemplate,
 		});
@@ -1066,6 +1076,37 @@ export function RuntimeSettingsDialog({
 							: "<project>/.cline/kanban/config.json"}
 						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
 					</p>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<div className="flex items-center justify-between gap-3 mb-2">
+							<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0">
+								Board file path
+							</h6>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => {
+									setBoardPath("");
+								}}
+								disabled={controlsDisabled || boardPath.trim().length === 0}
+							>
+								Use default
+							</Button>
+						</div>
+						<input
+							type="text"
+							value={boardPath}
+							onChange={(event) => {
+								setBoardPath(event.target.value);
+							}}
+							disabled={controlsDisabled}
+							placeholder="board.json or .kanban/board.json"
+							className="w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-[13px] text-text-primary outline-none transition focus:border-border-focus"
+						/>
+						<p className="mt-2 mb-0 text-[12px] text-text-secondary">
+							Relative paths resolve from the project root. Leave empty to keep the default board at{" "}
+							<code>&lt;statePath&gt;/board.json</code>.
+						</p>
+					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 						<div className="flex items-center justify-between mb-2">
 							<h6

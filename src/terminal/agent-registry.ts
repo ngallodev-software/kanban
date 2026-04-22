@@ -119,6 +119,7 @@ export function buildRuntimeConfigResponse(
 		detectedCommands,
 		agents,
 		shortcuts: runtimeConfig.shortcuts,
+		boardPath: runtimeConfig.boardPath,
 		clineProviderSettings,
 		commitPromptTemplate: runtimeConfig.commitPromptTemplate,
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
