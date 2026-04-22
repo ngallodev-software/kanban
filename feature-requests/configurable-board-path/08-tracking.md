@@ -14,7 +14,7 @@
 | `R-02` canonical resolver | done | board path joins centralized in `workspace-state.ts` |
 | `R-03` stable workspace identity | done | workspace index semantics unchanged |
 | `R-04` narrow persistence change | done | only board file relocates; sessions/meta remain in state dir |
-| `R-05` honest runtime contract | done | runtime responses now expose `boardPath` |
+| `R-05` honest runtime contract | done | runtime responses expose `boardPath` only when a non-default override is active |
 | `R-06` configurability | done | persisted project runtime config is canonical source |
 | `R-07` loud failure behavior | done | malformed custom board path fails loudly; no silent fallback |
 | `R-08` test coverage | done | config, validation, workspace-state, and focused web tests updated |
@@ -29,7 +29,7 @@
 - no SDK changes
 - persisted project runtime config as canonical override source
 - board-only override in v1
-- runtime response exposes `boardPath`
+- runtime response exposes `boardPath` only when a non-default override is active
 
 ### Deferred
 
