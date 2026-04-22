@@ -55,6 +55,7 @@ function createRuntimeConfigResponse(
 			},
 		],
 		shortcuts,
+		boardPath: null,
 		clineProviderSettings: {
 			providerId: null,
 			modelId: null,

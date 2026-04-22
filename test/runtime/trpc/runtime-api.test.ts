@@ -58,6 +58,16 @@ const browserMocks = vi.hoisted(() => ({
 	openInBrowser: vi.fn(),
 }));
 
+const runtimeConfigMocks = vi.hoisted(() => ({
+	saveRuntimeConfig: vi.fn(),
+	updateGlobalRuntimeConfig: vi.fn(),
+	updateRuntimeConfig: vi.fn(),
+}));
+
+const workspaceStateMocks = vi.hoisted(() => ({
+	reconfigureWorkspaceBoardPath: vi.fn(),
+}));
+
 vi.mock("../../../src/terminal/agent-registry.js", () => ({
 	resolveAgentCommand: agentRegistryMocks.resolveAgentCommand,
 	buildRuntimeConfigResponse: agentRegistryMocks.buildRuntimeConfigResponse,
@@ -127,6 +137,16 @@ vi.mock("../../../src/server/browser.js", () => ({
 	openInBrowser: browserMocks.openInBrowser,
 }));
 
+vi.mock("../../../src/config/runtime-config.js", () => ({
+	saveRuntimeConfig: runtimeConfigMocks.saveRuntimeConfig,
+	updateGlobalRuntimeConfig: runtimeConfigMocks.updateGlobalRuntimeConfig,
+	updateRuntimeConfig: runtimeConfigMocks.updateRuntimeConfig,
+}));
+
+vi.mock("../../../src/state/workspace-state.js", () => ({
+	reconfigureWorkspaceBoardPath: workspaceStateMocks.reconfigureWorkspaceBoardPath,
+}));
+
 import { createRuntimeApi } from "../../../src/trpc/runtime-api";
 
 function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -156,6 +176,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		agentAutonomousModeEnabled: true,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
+		boardPath: null,
 		commitPromptTemplate: "commit",
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
@@ -259,6 +280,10 @@ describe("createRuntimeApi startTaskSession", () => {
 		llmsModelMocks.resolveProviderConfig.mockReset();
 		llmsModelMocks.resolveProviderModelCatalogKeys.mockReset();
 		browserMocks.openInBrowser.mockReset();
+		runtimeConfigMocks.saveRuntimeConfig.mockReset();
+		runtimeConfigMocks.updateGlobalRuntimeConfig.mockReset();
+		runtimeConfigMocks.updateRuntimeConfig.mockReset();
+		workspaceStateMocks.reconfigureWorkspaceBoardPath.mockReset();
 
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
 			agentId: "claude",
@@ -339,6 +364,16 @@ describe("createRuntimeApi startTaskSession", () => {
 			}),
 		});
 		setSelectedProviderSettings(null);
+		runtimeConfigMocks.updateGlobalRuntimeConfig.mockImplementation(async (current, updates) => ({
+			...current,
+			...updates,
+		}));
+		runtimeConfigMocks.updateRuntimeConfig.mockImplementation(async (_cwd, updates) => ({
+			...createRuntimeConfigState(),
+			...updates,
+		}));
+		runtimeConfigMocks.saveRuntimeConfig.mockImplementation(async (_cwd, config) => config);
+		workspaceStateMocks.reconfigureWorkspaceBoardPath.mockResolvedValue(undefined);
 		llmsModelMocks.getAllProviders.mockResolvedValue([
 			{
 				id: "cline",
@@ -2825,5 +2860,81 @@ describe("createRuntimeApi getFeaturebaseToken", () => {
 		expect(response).toEqual({ featurebaseJwt: "refreshed-jwt-456" });
 		expect(clineAccountMocks.fetchFeaturebaseToken).toHaveBeenCalledTimes(2);
 		expect(oauthMocks.getValidClineCredentials).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createRuntimeApi saveConfig", () => {
+	it("rolls back the full workspace config when board-path reconfiguration fails", async () => {
+		const currentConfig = createRuntimeConfigState();
+		const nextShortcuts = [{ label: "Ship", command: "npm run ship", icon: "rocket" }];
+		const nextConfig = {
+			...currentConfig,
+			selectedAgentId: "codex" as const,
+			shortcuts: nextShortcuts,
+			boardPath: ".kanban/board.json",
+			commitPromptTemplate: "next commit",
+			openPrPromptTemplate: "next pr",
+		};
+		const setActiveRuntimeConfig = vi.fn();
+		runtimeConfigMocks.updateRuntimeConfig.mockResolvedValue(nextConfig);
+		workspaceStateMocks.reconfigureWorkspaceBoardPath.mockRejectedValue(new Error("Destination already exists."));
+		agentRegistryMocks.buildRuntimeConfigResponse.mockImplementation((config) => config);
+
+		const api = createRuntimeApi({
+			getActiveWorkspaceId: () => "workspace-1",
+			getActiveRuntimeConfig: () => currentConfig,
+			loadScopedRuntimeConfig: async () => currentConfig,
+			setActiveRuntimeConfig,
+			getScopedTerminalManager: async () => ({}) as never,
+			getScopedClineTaskSessionService: async () => createClineTaskSessionServiceMock() as never,
+			resolveInteractiveShellCommand: () => ({ binary: "bash", args: [] }),
+			runCommand: async () => ({
+				exitCode: 0,
+				stdout: "",
+				stderr: "",
+				combinedOutput: "",
+				durationMs: 0,
+			}),
+		});
+
+		await expect(
+			api.saveConfig(
+				{
+					workspaceId: "workspace-1",
+					workspacePath: "/tmp/repo",
+				},
+				{
+					selectedAgentId: "codex",
+					shortcuts: nextShortcuts,
+					boardPath: ".kanban/board.json",
+					commitPromptTemplate: "next commit",
+					openPrPromptTemplate: "next pr",
+				},
+			),
+		).rejects.toThrow("Destination already exists.");
+
+		expect(runtimeConfigMocks.updateRuntimeConfig).toHaveBeenCalledWith("/tmp/repo", {
+			selectedAgentId: "codex",
+			shortcuts: nextShortcuts,
+			boardPath: ".kanban/board.json",
+			commitPromptTemplate: "next commit",
+			openPrPromptTemplate: "next pr",
+		});
+		expect(workspaceStateMocks.reconfigureWorkspaceBoardPath).toHaveBeenCalledWith(
+			"/tmp/repo",
+			null,
+			".kanban/board.json",
+		);
+		expect(runtimeConfigMocks.saveRuntimeConfig).toHaveBeenCalledWith("/tmp/repo", {
+			selectedAgentId: currentConfig.selectedAgentId,
+			selectedShortcutLabel: currentConfig.selectedShortcutLabel,
+			agentAutonomousModeEnabled: currentConfig.agentAutonomousModeEnabled,
+			readyForReviewNotificationsEnabled: currentConfig.readyForReviewNotificationsEnabled,
+			shortcuts: currentConfig.shortcuts,
+			boardPath: currentConfig.boardPath,
+			commitPromptTemplate: currentConfig.commitPromptTemplate,
+			openPrPromptTemplate: currentConfig.openPrPromptTemplate,
+		});
+		expect(setActiveRuntimeConfig).not.toHaveBeenCalled();
 	});
 });
