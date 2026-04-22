@@ -199,6 +199,9 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 		const failedText = finalMessage ?? activityText ?? "Task failed to start";
 		return { dotColor: SESSION_ACTIVITY_COLOR.error, text: failedText };
 	}
+	if (summary.state === "interrupted") {
+		return { dotColor: SESSION_ACTIVITY_COLOR.warning, text: "Interrupted" };
+	}
 	if (summary.state === "awaiting_review") {
 		return { dotColor: SESSION_ACTIVITY_COLOR.success, text: "Waiting for review" };
 	}
@@ -436,10 +439,13 @@ export function BoardCard({
 		if (isCreditLimit) {
 			return <AlertTriangle size={12} className="text-status-orange" />;
 		}
+		if (sessionSummary?.state === "failed") {
+			return <AlertCircle size={12} className="text-status-red" />;
+		}
+		if (sessionSummary?.state === "interrupted") {
+			return <AlertTriangle size={12} className="text-status-orange" />;
+		}
 		if (columnId === "in_progress") {
-			if (sessionSummary?.state === "failed") {
-				return <AlertCircle size={12} className="text-status-red" />;
-			}
 			return <Spinner size={12} />;
 		}
 		return null;
@@ -463,7 +469,9 @@ export function BoardCard({
 				? isTrashCard
 					? "Task worktree deleted"
 					: "Task worktree not created yet"
-				: "Task worktree";
+				: reviewWorkspaceInfo?.exists === true
+					? "Task worktree"
+					: null;
 	const reviewRefLabel = reviewWorkspaceSnapshot?.branch ?? reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "HEAD";
 	const reviewChangeSummary = reviewWorkspaceSnapshot
 		? reviewWorkspaceSnapshot.changedFiles == null
@@ -648,7 +656,21 @@ export function BoardCard({
 										</p>
 									)}
 								</div>
-								{columnId === "backlog" ? (
+								{sessionSummary?.state === "interrupted" &&
+								sessionSummary.agentId !== "cline" &&
+								columnId !== "trash" ? (
+									<Button
+										icon={<RotateCcw size={14} />}
+										variant="ghost"
+										size="sm"
+										aria-label="Resume task"
+										onMouseDown={stopEvent}
+										onClick={(event) => {
+											stopEvent(event);
+											onStart?.(card.id);
+										}}
+									/>
+								) : columnId === "backlog" ? (
 									<Button
 										icon={<Play size={14} />}
 										variant="ghost"
@@ -844,19 +866,21 @@ export function BoardCard({
 							) : null}
 							{showWorkspaceStatus && reviewWorkspacePath ? (
 								<div className="mt-1">
-									<span
-										className={cn(
-											"inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
-											reviewWorkspaceInfo?.exists === false
-												? isTrashCard
-													? "border-border bg-surface-1 text-text-tertiary"
-													: "border-status-orange/30 bg-status-orange/10 text-status-orange"
-												: "border-border bg-surface-1 text-text-secondary",
-										)}
-									>
-										<GitBranch size={12} className="shrink-0" />
-										<span className="truncate">{reviewWorkspaceStatusLabel}</span>
-									</span>
+									{reviewWorkspaceStatusLabel ? (
+										<span
+											className={cn(
+												"inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
+												reviewWorkspaceInfo?.exists === false
+													? isTrashCard
+														? "border-border bg-surface-1 text-text-tertiary"
+														: "border-status-orange/30 bg-status-orange/10 text-status-orange"
+													: "border-border bg-surface-1 text-text-secondary",
+											)}
+										>
+											<GitBranch size={12} className="shrink-0" />
+											<span className="truncate">{reviewWorkspaceStatusLabel}</span>
+										</span>
+									) : null}
 									<p
 										className="font-mono"
 										style={{

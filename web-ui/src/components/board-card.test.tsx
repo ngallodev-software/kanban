@@ -290,6 +290,26 @@ describe("BoardCard", () => {
 		expect(container.textContent).not.toContain("/tmp/worktrees/task-1");
 	});
 
+	it("hides the task-worktree badge when workspace existence is unknown", async () => {
+		mockWorkspaceInfo = {
+			taskId: "task-1",
+			path: "/tmp/worktrees/task-1",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
+			exists: undefined as unknown as boolean,
+			baseRef: "main",
+			branch: "feature/traceability",
+			isDetached: false,
+			headCommit: "1234567890abcdef",
+		};
+
+		await act(async () => {
+			root.render(<BoardCard card={createCard({ id: "task-1" })} index={0} columnId="review" />);
+		});
+
+		expect(container.textContent).not.toContain("Task worktree");
+		expect(container.textContent).toContain("~/.cline/worktrees/task-1/kanban");
+	});
+
 	it("shows the metadata snapshot worktree path on active review cards", async () => {
 		mockWorkspaceSnapshot = {
 			taskId: "task-1",
@@ -314,6 +334,61 @@ describe("BoardCard", () => {
 		expect(container.textContent).toContain("~/.cline/worktrees/task-1/kanban");
 		expect(container.textContent).toContain("feature/traceability");
 		expect(container.textContent).not.toContain("/tmp/project-root");
+	});
+
+	it("shows interrupted session state distinctly from failed sessions", async () => {
+		await act(async () => {
+			root.render(
+				<>
+					<BoardCard
+						card={createCard({ id: "task-interrupted" })}
+						index={0}
+						columnId="in_progress"
+						sessionSummary={createSummary("interrupted", {
+							agentId: "codex",
+							reviewReason: "interrupted",
+						})}
+					/>
+					<BoardCard
+						card={createCard({ id: "task-failed" })}
+						index={1}
+						columnId="in_progress"
+						sessionSummary={createSummary("failed")}
+					/>
+				</>,
+			);
+		});
+
+		expect(container.textContent).toContain("Interrupted");
+		expect(container.textContent).toContain("Task failed to start");
+	});
+
+	it("shows a resume button for interrupted cards outside trash", async () => {
+		const onStart = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<BoardCard
+					card={createCard({ id: "task-interrupted" })}
+					index={0}
+					columnId="review"
+					onStart={onStart}
+					sessionSummary={createSummary("interrupted", {
+						agentId: "codex",
+						reviewReason: "interrupted",
+					})}
+				/>,
+			);
+		});
+
+		const resumeButton = container.querySelector('button[aria-label="Resume task"]');
+		expect(resumeButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			(resumeButton as HTMLButtonElement).click();
+		});
+
+		expect(onStart).toHaveBeenCalledWith("task-interrupted");
 	});
 
 	it("shows formatted agent override details with model name and reasoning effort", async () => {

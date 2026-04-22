@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
-import type { RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
+import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
 
 let mockWorkspaceInfo: RuntimeTaskWorkspaceInfoResponse | undefined;
 
@@ -20,6 +20,25 @@ vi.mock("@/terminal/use-persistent-terminal-session", () => ({
 		stopTerminal: vi.fn(async () => {}),
 	}),
 }));
+
+function createSummary(state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionSummary {
+	return {
+		taskId: "task-1",
+		state,
+		agentId: "claude",
+		workspacePath: "/tmp/worktree",
+		pid: null,
+		startedAt: 1,
+		updatedAt: 1,
+		lastOutputAt: 1,
+		reviewReason: null,
+		exitCode: null,
+		lastHookAt: null,
+		latestHookActivity: null,
+		latestTurnCheckpoint: null,
+		previousTurnCheckpoint: null,
+	};
+}
 
 describe("AgentTerminalPanel", () => {
 	let container: HTMLDivElement;
@@ -76,5 +95,61 @@ describe("AgentTerminalPanel", () => {
 		expect(container.textContent).toContain("Task worktree");
 		expect(container.textContent).toContain("~/.cline/worktrees/task-1/kanban");
 		expect(container.textContent).not.toContain("/tmp/worktrees/task-1");
+	});
+
+	it("hides the task-worktree badge when workspace existence is unknown", async () => {
+		mockWorkspaceInfo = {
+			taskId: "task-1",
+			path: "/tmp/worktrees/task-1",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
+			exists: undefined as unknown as boolean,
+			baseRef: "main",
+			branch: "feature/traceability",
+			isDetached: false,
+			headCommit: "1234567890abcdef",
+		};
+
+		await act(async () => {
+			root.render(
+				<AgentTerminalPanel
+					taskId="task-1"
+					workspaceId="workspace-1"
+					summary={null}
+					showSessionToolbar={false}
+					onClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("~/.cline/worktrees/task-1/kanban");
+		expect(container.textContent).not.toContain("Task worktree");
+	});
+
+	it("shows an explicit resume action for interrupted sessions", async () => {
+		const onResume = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<AgentTerminalPanel
+					taskId="task-1"
+					workspaceId="project-1"
+					summary={createSummary("interrupted")}
+					onResume={onResume}
+				/>,
+			);
+		});
+
+		expect(container.textContent).toContain("Interrupted");
+
+		const resumeButton = Array.from(container.querySelectorAll("button")).find((button) =>
+			button.textContent?.includes("Resume"),
+		);
+		expect(resumeButton).toBeInstanceOf(HTMLButtonElement);
+
+		await act(async () => {
+			(resumeButton as HTMLButtonElement).click();
+		});
+
+		expect(onResume).toHaveBeenCalledTimes(1);
 	});
 });

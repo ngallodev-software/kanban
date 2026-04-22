@@ -680,7 +680,7 @@ export default function App(): ReactElement {
 		if (!activeSelectedTaskWorkspaceInfo) {
 			return undefined;
 		}
-		if (!activeSelectedTaskWorkspaceInfo.exists) {
+		if (activeSelectedTaskWorkspaceInfo.exists === false) {
 			return selectedCard.column.id === "trash" ? "Task worktree deleted" : "Task worktree not created yet";
 		}
 		return undefined;
