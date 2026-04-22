@@ -347,6 +347,106 @@ describe("useBoardInteractions", () => {
 		boardElement.remove();
 	});
 
+	it("resumes interrupted backlog tasks in place instead of starting them fresh", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove: () => "unavailable" as const,
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+		useLinkedBacklogTaskActionsMock.mockReturnValue({
+			handleCreateDependency: () => {},
+			handleDeleteDependency: () => {},
+			confirmMoveTaskToTrash: async () => {},
+			requestMoveTaskToTrash: async () => {},
+		});
+
+		const interruptedTask = createTask("task-interrupted-backlog", "Interrupted backlog task", 4);
+		const board: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [interruptedTask] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [] },
+				{ id: "trash", title: "Trash", cards: [] },
+			],
+			dependencies: [],
+		};
+		const sessions: Record<string, RuntimeTaskSessionSummary> = {
+			[interruptedTask.id]: {
+				taskId: interruptedTask.id,
+				state: "interrupted",
+				agentId: "codex",
+				workspacePath: "/tmp/task-interrupted-backlog",
+				pid: null,
+				startedAt: 1,
+				updatedAt: 2,
+				lastOutputAt: 2,
+				reviewReason: "interrupted",
+				exitCode: null,
+				lastHookAt: null,
+				latestHookActivity: null,
+				latestTurnCheckpoint: null,
+				previousTurnCheckpoint: null,
+			},
+		};
+		let currentBoard = board;
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+			if (typeof nextBoard === "function") {
+				currentBoard = nextBoard(currentBoard);
+				return;
+			}
+			currentBoard = nextBoard;
+		});
+		const ensureTaskWorkspace = vi.fn(async () => ({
+			ok: true as const,
+			response: {
+				ok: true as const,
+				path: "/tmp/task-interrupted-backlog",
+				baseRef: "main",
+				baseCommit: "abc123",
+			},
+		}));
+		const startTaskSession = vi.fn(async () => ({ ok: true as const }));
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={board}
+					setBoard={setBoard}
+					ensureTaskWorkspace={ensureTaskWorkspace}
+					startTaskSession={startTaskSession}
+					initialSessions={sessions}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (latestSnapshot === null) {
+			throw new Error("Expected a hook snapshot.");
+		}
+		const snapshot = latestSnapshot as HookSnapshot;
+
+		await act(async () => {
+			snapshot.handleStartTask(interruptedTask.id);
+			for (let i = 0; i < 5; i++) {
+				await Promise.resolve();
+			}
+		});
+
+		expect(ensureTaskWorkspace).toHaveBeenCalledWith(interruptedTask);
+		expect(startTaskSession).toHaveBeenCalledWith({ ...interruptedTask, agentId: "codex" });
+		expect(currentBoard.columns.find((column) => column.id === "backlog")?.cards).toContain(interruptedTask);
+		expect(currentBoard.columns.find((column) => column.id === "in_progress")?.cards).toHaveLength(0);
+	});
+
 	it("starts backlog tasks immediately from detail view without waiting for card height to settle", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 		const tryProgrammaticCardMove = vi.fn(() => "unavailable" as const);
