@@ -319,7 +319,6 @@ describe.sequential("workspace-state integration", () => {
 			}
 		});
 	});
-
 	it("fails loudly when persisted board data is malformed", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-malformed-board-");
