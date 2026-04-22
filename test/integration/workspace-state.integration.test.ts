@@ -295,6 +295,31 @@ describe.sequential("workspace-state integration", () => {
 		});
 	});
 
+	it("omits boardPath from workspace state when the default board location is in use", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-default-board-path-");
+			try {
+				const workspacePath = join(sandboxRoot, "project-default-board");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				const saved = await saveWorkspaceState(workspacePath, {
+					board: createBoard("Default path task"),
+					sessions: {},
+					expectedRevision: 0,
+				});
+
+				const loaded = await loadWorkspaceState(workspacePath);
+				expect(saved.revision).toBe(1);
+				expect(loaded.board.columns[0]?.cards[0]?.prompt).toBe("Default path task");
+				expect(loaded.statePath).toBeTruthy();
+				expect(loaded).not.toHaveProperty("boardPath");
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
 	it("fails loudly when persisted board data is malformed", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-malformed-board-");

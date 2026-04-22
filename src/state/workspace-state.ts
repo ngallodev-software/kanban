@@ -560,10 +560,11 @@ function toWorkspaceStateResponse(
 	sessions: Record<string, RuntimeTaskSessionSummary>,
 	revision: number,
 ): RuntimeWorkspaceStateResponse {
+	const defaultBoardPath = join(storagePaths.statePath, BOARD_FILENAME);
 	return {
 		repoPath: context.repoPath,
 		statePath: storagePaths.statePath,
-		boardPath: storagePaths.boardPath,
+		...(storagePaths.boardPath !== defaultBoardPath ? { boardPath: storagePaths.boardPath } : {}),
 		git: context.git,
 		board,
 		sessions,
