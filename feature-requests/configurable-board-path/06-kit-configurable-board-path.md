@@ -46,7 +46,7 @@ Runtime responses and docs must not imply false storage semantics.
 
 Acceptance:
 - if `statePath` no longer implies board location, either:
-  - runtime also exposes `boardPath`, or
+  - runtime also exposes `boardPath` when a non-default override is active, or
   - docs/tests clearly state `statePath` is workspace metadata directory only
 
 ## R-06 Configurability
