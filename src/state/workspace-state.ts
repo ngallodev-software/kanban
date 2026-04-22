@@ -790,6 +790,7 @@ export async function reconfigureWorkspaceBoardPath(
 	cwd: string,
 	previousBoardPathOverride: string | null,
 	nextBoardPathOverride: string | null,
+	options: { alreadyLocked?: boolean } = {},
 ): Promise<void> {
 	const context = await loadWorkspaceContext(cwd);
 	const previousPaths = resolveWorkspaceStoragePathsForOverride(
@@ -806,7 +807,7 @@ export async function reconfigureWorkspaceBoardPath(
 		return;
 	}
 
-	await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(context.workspaceId), async () => {
+	const reconfigure = async (): Promise<void> => {
 		const previousBoardRaw = await readFile(previousPaths.boardPath, "utf8").catch((error: unknown) => {
 			if (isNodeErrorWithCode(error, "ENOENT")) {
 				return null;
@@ -838,5 +839,14 @@ export async function reconfigureWorkspaceBoardPath(
 			lock: null,
 		});
 		await rm(previousPaths.boardPath, { force: true });
+	};
+
+	if (options.alreadyLocked) {
+		await reconfigure();
+		return;
+	}
+
+	await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(context.workspaceId), async () => {
+		await reconfigure();
 	});
 }
