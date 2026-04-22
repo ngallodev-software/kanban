@@ -13,7 +13,7 @@ import { createClineProviderService } from "../cline-sdk/cline-provider-service"
 import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
-import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
+import { saveRuntimeConfig, updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type { RuntimeCommandRunResponse } from "../core/api-contract";
 import {
 	parseClineAccountSwitchRequest,
@@ -40,6 +40,7 @@ import {
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
+import { reconfigureWorkspaceBoardPath } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { resolveTaskCwd } from "../workspace/task-worktree";
@@ -122,7 +123,29 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			const parsed = parseRuntimeConfigSaveRequest(input);
 			let nextRuntimeConfig: RuntimeConfigState;
 			if (workspaceScope) {
+				const currentRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
 				nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, parsed);
+				if (parsed.boardPath !== undefined && currentRuntimeConfig.boardPath !== nextRuntimeConfig.boardPath) {
+					try {
+						await reconfigureWorkspaceBoardPath(
+							workspaceScope.workspacePath,
+							currentRuntimeConfig.boardPath,
+							nextRuntimeConfig.boardPath,
+						);
+					} catch (error) {
+						await saveRuntimeConfig(workspaceScope.workspacePath, {
+							selectedAgentId: currentRuntimeConfig.selectedAgentId,
+							selectedShortcutLabel: currentRuntimeConfig.selectedShortcutLabel,
+							agentAutonomousModeEnabled: currentRuntimeConfig.agentAutonomousModeEnabled,
+							readyForReviewNotificationsEnabled: currentRuntimeConfig.readyForReviewNotificationsEnabled,
+							shortcuts: currentRuntimeConfig.shortcuts,
+							boardPath: currentRuntimeConfig.boardPath,
+							commitPromptTemplate: currentRuntimeConfig.commitPromptTemplate,
+							openPrPromptTemplate: currentRuntimeConfig.openPrPromptTemplate,
+						});
+						throw error;
+					}
+				}
 			} else {
 				const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
 				if (!activeRuntimeConfig) {

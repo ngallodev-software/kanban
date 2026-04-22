@@ -36,6 +36,7 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 			},
 		],
 		shortcuts: [],
+		boardPath: null,
 		clineProviderSettings: {
 			providerId: null,
 			modelId: null,
