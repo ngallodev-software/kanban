@@ -292,6 +292,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
+					boardPath: null,
 					commitPromptTemplate: current.commitPromptTemplateDefault,
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
 				});
@@ -337,6 +338,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [],
+					boardPath: null,
 					commitPromptTemplate: current.commitPromptTemplateDefault,
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
 				});
@@ -364,6 +366,7 @@ describe.sequential("runtime-config auto agent selection", () => {
 					agentAutonomousModeEnabled: true,
 					readyForReviewNotificationsEnabled: true,
 					shortcuts: [{ label: "Ship", command: "npm run ship", icon: "rocket" }],
+					boardPath: null,
 					commitPromptTemplate: current.commitPromptTemplateDefault,
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
 				});
@@ -406,6 +409,41 @@ describe.sequential("runtime-config auto agent selection", () => {
 				expect(globalPayload.selectedShortcutLabel).toBeUndefined();
 				expect(globalPayload.agentAutonomousModeEnabled).toBeUndefined();
 				expect(globalPayload.readyForReviewNotificationsEnabled).toBeUndefined();
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
+	it("persists project board path without requiring shortcuts", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-board-path-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-board-path-");
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const updated = await updateRuntimeConfig(tempProject, {
+					boardPath: ".kanban/board.json",
+				});
+				expect(updated.boardPath).toBe(".kanban/board.json");
+
+				const projectPayload = JSON.parse(
+					readFileSync(join(tempProject, ".cline", "kanban", "config.json"), "utf8"),
+				) as {
+					boardPath?: string;
+					shortcuts?: unknown;
+				};
+				expect(projectPayload.boardPath).toBe(".kanban/board.json");
+				expect(projectPayload.shortcuts).toBeUndefined();
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.boardPath).toBe(".kanban/board.json");
+
+				const cleared = await updateRuntimeConfig(tempProject, {
+					boardPath: null,
+				});
+				expect(cleared.boardPath).toBeNull();
+				expect(existsSync(join(tempProject, ".cline", "kanban", "config.json"))).toBe(false);
 			});
 		} finally {
 			cleanupProject();

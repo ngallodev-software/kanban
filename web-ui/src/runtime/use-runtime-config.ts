@@ -14,6 +14,7 @@ export interface UseRuntimeConfigResult {
 		selectedShortcutLabel?: string | null;
 		agentAutonomousModeEnabled?: boolean;
 		shortcuts?: RuntimeProjectShortcut[];
+		boardPath?: string | null;
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
@@ -81,6 +82,7 @@ export function useRuntimeConfig(
 			selectedShortcutLabel?: string | null;
 			agentAutonomousModeEnabled?: boolean;
 			shortcuts?: RuntimeProjectShortcut[];
+			boardPath?: string | null;
 			readyForReviewNotificationsEnabled?: boolean;
 			commitPromptTemplate?: string;
 			openPrPromptTemplate?: string;
