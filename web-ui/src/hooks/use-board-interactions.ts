@@ -688,14 +688,14 @@ export function useBoardInteractions({
 				return;
 			}
 			const session = sessions[taskId];
-			if (selection.column.id === "backlog") {
-				maybeRequestNotificationPermissionForTaskStart();
-				void startBacklogTaskWithAnimation(selection.card);
-				return;
-			}
 			if (session?.state === "interrupted") {
 				maybeRequestNotificationPermissionForTaskStart();
 				void resumeInterruptedTaskInPlace(selection.card, taskId);
+				return;
+			}
+			if (selection.column.id === "backlog") {
+				maybeRequestNotificationPermissionForTaskStart();
+				void startBacklogTaskWithAnimation(selection.card);
 			}
 		},
 		[
