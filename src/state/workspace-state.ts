@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
+import { loadRuntimeConfig } from "../config/runtime-config";
 import {
 	type RuntimeBoardColumnId,
 	type RuntimeBoardData,
@@ -135,6 +136,13 @@ export interface RuntimeWorkspaceContext {
 	git: RuntimeGitRepositoryInfo;
 }
 
+interface WorkspaceStoragePaths {
+	statePath: string;
+	boardPath: string;
+	sessionsPath: string;
+	metaPath: string;
+}
+
 export interface LoadWorkspaceContextOptions {
 	autoCreateIfMissing?: boolean;
 }
@@ -178,16 +186,23 @@ export function getWorkspaceDirectoryPath(workspaceId: string): string {
 	return join(getWorkspacesRootPath(), workspaceId);
 }
 
-function getWorkspaceBoardPath(workspaceId: string): string {
-	return join(getWorkspaceDirectoryPath(workspaceId), BOARD_FILENAME);
+function resolveWorkspaceStoragePathsForOverride(
+	repoPath: string,
+	workspaceId: string,
+	boardPathOverride: string | null,
+): WorkspaceStoragePaths {
+	const statePath = getWorkspaceDirectoryPath(workspaceId);
+	return {
+		statePath,
+		boardPath: boardPathOverride ? resolve(repoPath, boardPathOverride) : join(statePath, BOARD_FILENAME),
+		sessionsPath: join(statePath, SESSIONS_FILENAME),
+		metaPath: join(statePath, META_FILENAME),
+	};
 }
 
-function getWorkspaceSessionsPath(workspaceId: string): string {
-	return join(getWorkspaceDirectoryPath(workspaceId), SESSIONS_FILENAME);
-}
-
-function getWorkspaceMetaPath(workspaceId: string): string {
-	return join(getWorkspaceDirectoryPath(workspaceId), META_FILENAME);
+async function resolveWorkspaceStoragePaths(repoPath: string, workspaceId: string): Promise<WorkspaceStoragePaths> {
+	const runtimeConfig = await loadRuntimeConfig(repoPath);
+	return resolveWorkspaceStoragePathsForOverride(repoPath, workspaceId, runtimeConfig.boardPath);
 }
 
 function getWorkspaceIndexLockRequest(): LockRequest {
@@ -292,28 +307,44 @@ function parseWorkspaceStateSavePayload(payload: RuntimeWorkspaceStateSaveReques
 	return parsed.data;
 }
 
-async function readWorkspaceBoard(workspaceId: string): Promise<RuntimeBoardData> {
-	const boardPath = getWorkspaceBoardPath(workspaceId);
-	const rawBoard = await readJsonFile(boardPath);
+async function readWorkspaceBoard(storagePaths: WorkspaceStoragePaths): Promise<RuntimeBoardData> {
+	const rawBoard = await readJsonFile(storagePaths.boardPath);
 	return updateTaskDependencies(
-		parsePersistedStateFile(boardPath, BOARD_FILENAME, rawBoard, runtimeBoardDataSchema, createEmptyBoard()),
+		parsePersistedStateFile(
+			storagePaths.boardPath,
+			BOARD_FILENAME,
+			rawBoard,
+			runtimeBoardDataSchema,
+			createEmptyBoard(),
+		),
 	);
 }
 
 export async function loadWorkspaceBoardById(workspaceId: string): Promise<RuntimeBoardData> {
-	return await readWorkspaceBoard(workspaceId);
+	const context = await loadWorkspaceContextById(workspaceId);
+	if (!context) {
+		throw new Error(`Unknown workspace ID: ${workspaceId}`);
+	}
+	const storagePaths = await resolveWorkspaceStoragePaths(context.repoPath, context.workspaceId);
+	return await readWorkspaceBoard(storagePaths);
 }
 
-async function readWorkspaceSessions(workspaceId: string): Promise<Record<string, RuntimeTaskSessionSummary>> {
-	const sessionsPath = getWorkspaceSessionsPath(workspaceId);
-	const rawSessions = await readJsonFile(sessionsPath);
-	return parsePersistedStateFile(sessionsPath, SESSIONS_FILENAME, rawSessions, workspaceSessionsSchema, {});
+async function readWorkspaceSessions(
+	storagePaths: WorkspaceStoragePaths,
+): Promise<Record<string, RuntimeTaskSessionSummary>> {
+	const rawSessions = await readJsonFile(storagePaths.sessionsPath);
+	return parsePersistedStateFile(
+		storagePaths.sessionsPath,
+		SESSIONS_FILENAME,
+		rawSessions,
+		workspaceSessionsSchema,
+		{},
+	);
 }
 
-async function readWorkspaceMeta(workspaceId: string): Promise<WorkspaceStateMeta> {
-	const metaPath = getWorkspaceMetaPath(workspaceId);
-	const rawMeta = await readJsonFile(metaPath);
-	return parsePersistedStateFile(metaPath, META_FILENAME, rawMeta, workspaceStateMetaSchema, {
+async function readWorkspaceMeta(storagePaths: WorkspaceStoragePaths): Promise<WorkspaceStateMeta> {
+	const rawMeta = await readJsonFile(storagePaths.metaPath);
+	return parsePersistedStateFile(storagePaths.metaPath, META_FILENAME, rawMeta, workspaceStateMetaSchema, {
 		revision: 0,
 		updatedAt: 0,
 	});
@@ -524,13 +555,16 @@ async function resolveWorkspacePath(cwd: string): Promise<string> {
 
 function toWorkspaceStateResponse(
 	context: RuntimeWorkspaceContext,
+	storagePaths: WorkspaceStoragePaths,
 	board: RuntimeBoardData,
 	sessions: Record<string, RuntimeTaskSessionSummary>,
 	revision: number,
 ): RuntimeWorkspaceStateResponse {
+	const defaultBoardPath = join(storagePaths.statePath, BOARD_FILENAME);
 	return {
 		repoPath: context.repoPath,
-		statePath: context.statePath,
+		statePath: storagePaths.statePath,
+		...(storagePaths.boardPath !== defaultBoardPath ? { boardPath: storagePaths.boardPath } : {}),
 		git: context.git,
 		board,
 		sessions,
@@ -639,10 +673,11 @@ export async function removeWorkspaceStateFiles(workspaceId: string): Promise<vo
 
 export async function loadWorkspaceState(cwd: string): Promise<RuntimeWorkspaceStateResponse> {
 	const context = await loadWorkspaceContext(cwd);
-	const board = await readWorkspaceBoard(context.workspaceId);
-	const sessions = await readWorkspaceSessions(context.workspaceId);
-	const meta = await readWorkspaceMeta(context.workspaceId);
-	return toWorkspaceStateResponse(context, board, sessions, meta.revision);
+	const storagePaths = await resolveWorkspaceStoragePaths(context.repoPath, context.workspaceId);
+	const board = await readWorkspaceBoard(storagePaths);
+	const sessions = await readWorkspaceSessions(storagePaths);
+	const meta = await readWorkspaceMeta(storagePaths);
+	return toWorkspaceStateResponse(context, storagePaths, board, sessions, meta.revision);
 }
 
 export async function saveWorkspaceState(
@@ -652,8 +687,8 @@ export async function saveWorkspaceState(
 	const parsedPayload = parseWorkspaceStateSavePayload(payload);
 	const context = await loadWorkspaceContext(cwd);
 	return await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(context.workspaceId), async () => {
-		const metaPath = getWorkspaceMetaPath(context.workspaceId);
-		const currentMeta = await readWorkspaceMeta(context.workspaceId);
+		const storagePaths = await resolveWorkspaceStoragePaths(context.repoPath, context.workspaceId);
+		const currentMeta = await readWorkspaceMeta(storagePaths);
 		const expectedRevision = parsedPayload.expectedRevision;
 		if (
 			typeof expectedRevision === "number" &&
@@ -671,17 +706,17 @@ export async function saveWorkspaceState(
 			updatedAt: Date.now(),
 		};
 
-		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceBoardPath(context.workspaceId), board, {
+		await lockedFileSystem.writeJsonFileAtomic(storagePaths.boardPath, board, {
 			lock: null,
 		});
-		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceSessionsPath(context.workspaceId), sessions, {
+		await lockedFileSystem.writeJsonFileAtomic(storagePaths.sessionsPath, sessions, {
 			lock: null,
 		});
-		await lockedFileSystem.writeJsonFileAtomic(metaPath, nextMeta, {
+		await lockedFileSystem.writeJsonFileAtomic(storagePaths.metaPath, nextMeta, {
 			lock: null,
 		});
 
-		return toWorkspaceStateResponse(context, board, sessions, nextRevision);
+		return toWorkspaceStateResponse(context, storagePaths, board, sessions, nextRevision);
 	});
 }
 
@@ -704,10 +739,17 @@ export async function mutateWorkspaceState<T>(
 ): Promise<RuntimeWorkspaceAtomicMutationResponse<T>> {
 	const context = await loadWorkspaceContext(cwd);
 	return await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(context.workspaceId), async () => {
-		const currentBoard = await readWorkspaceBoard(context.workspaceId);
-		const currentSessions = await readWorkspaceSessions(context.workspaceId);
-		const currentMeta = await readWorkspaceMeta(context.workspaceId);
-		const currentState = toWorkspaceStateResponse(context, currentBoard, currentSessions, currentMeta.revision);
+		const storagePaths = await resolveWorkspaceStoragePaths(context.repoPath, context.workspaceId);
+		const currentBoard = await readWorkspaceBoard(storagePaths);
+		const currentSessions = await readWorkspaceSessions(storagePaths);
+		const currentMeta = await readWorkspaceMeta(storagePaths);
+		const currentState = toWorkspaceStateResponse(
+			context,
+			storagePaths,
+			currentBoard,
+			currentSessions,
+			currentMeta.revision,
+		);
 
 		const mutation = mutate(currentState);
 		if (mutation.save === false) {
@@ -726,20 +768,75 @@ export async function mutateWorkspaceState<T>(
 			updatedAt: Date.now(),
 		};
 
-		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceBoardPath(context.workspaceId), nextBoard, {
+		await lockedFileSystem.writeJsonFileAtomic(storagePaths.boardPath, nextBoard, {
 			lock: null,
 		});
-		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceSessionsPath(context.workspaceId), nextSessions, {
+		await lockedFileSystem.writeJsonFileAtomic(storagePaths.sessionsPath, nextSessions, {
 			lock: null,
 		});
-		await lockedFileSystem.writeJsonFileAtomic(getWorkspaceMetaPath(context.workspaceId), nextMeta, {
+		await lockedFileSystem.writeJsonFileAtomic(storagePaths.metaPath, nextMeta, {
 			lock: null,
 		});
 
 		return {
 			value: mutation.value,
-			state: toWorkspaceStateResponse(context, nextBoard, nextSessions, nextRevision),
+			state: toWorkspaceStateResponse(context, storagePaths, nextBoard, nextSessions, nextRevision),
 			saved: true,
 		};
+	});
+}
+
+export async function reconfigureWorkspaceBoardPath(
+	cwd: string,
+	previousBoardPathOverride: string | null,
+	nextBoardPathOverride: string | null,
+): Promise<void> {
+	const context = await loadWorkspaceContext(cwd);
+	const previousPaths = resolveWorkspaceStoragePathsForOverride(
+		context.repoPath,
+		context.workspaceId,
+		previousBoardPathOverride,
+	);
+	const nextPaths = resolveWorkspaceStoragePathsForOverride(
+		context.repoPath,
+		context.workspaceId,
+		nextBoardPathOverride,
+	);
+	if (previousPaths.boardPath === nextPaths.boardPath) {
+		return;
+	}
+
+	await lockedFileSystem.withLock(getWorkspaceDirectoryLockRequest(context.workspaceId), async () => {
+		const previousBoardRaw = await readFile(previousPaths.boardPath, "utf8").catch((error: unknown) => {
+			if (isNodeErrorWithCode(error, "ENOENT")) {
+				return null;
+			}
+			throw error;
+		});
+		if (previousBoardRaw === null) {
+			return;
+		}
+
+		const nextBoardRaw = await readFile(nextPaths.boardPath, "utf8").catch((error: unknown) => {
+			if (isNodeErrorWithCode(error, "ENOENT")) {
+				return null;
+			}
+			throw error;
+		});
+		if (nextBoardRaw !== null) {
+			if (nextBoardRaw === previousBoardRaw) {
+				await rm(previousPaths.boardPath, { force: true });
+				return;
+			}
+			throw new Error(
+				`Could not move board file to ${nextPaths.boardPath} because a different file already exists there.`,
+			);
+		}
+
+		await mkdir(dirname(nextPaths.boardPath), { recursive: true });
+		await lockedFileSystem.writeTextFileAtomic(nextPaths.boardPath, previousBoardRaw, {
+			lock: null,
+		});
+		await rm(previousPaths.boardPath, { force: true });
 	});
 }

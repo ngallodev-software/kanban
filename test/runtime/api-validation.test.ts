@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	parseHookIngestRequest,
+	parseRuntimeConfigSaveRequest,
 	parseTaskSessionStartRequest,
 	parseWorkspaceFileSearchRequest,
 } from "../../src/core/api-validation";
@@ -87,5 +88,33 @@ describe("parseTaskSessionStartRequest", () => {
 			baseRef: "main",
 			resumeFromTrash: true,
 		});
+	});
+});
+
+describe("parseRuntimeConfigSaveRequest", () => {
+	it("accepts nullable board path overrides", () => {
+		expect(
+			parseRuntimeConfigSaveRequest({
+				boardPath: ".kanban/board.json",
+			}),
+		).toEqual({
+			boardPath: ".kanban/board.json",
+		});
+
+		expect(
+			parseRuntimeConfigSaveRequest({
+				boardPath: null,
+			}),
+		).toEqual({
+			boardPath: null,
+		});
+	});
+
+	it("rejects empty board path overrides", () => {
+		expect(() => {
+			parseRuntimeConfigSaveRequest({
+				boardPath: "   ",
+			});
+		}).toThrow();
 	});
 });
