@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	parseHookIngestRequest,
 	parseRuntimeConfigSaveRequest,
+	parseTaskImportRequest,
 	parseTaskSessionStartRequest,
 	parseWorkspaceFileSearchRequest,
 } from "../../src/core/api-validation";
@@ -116,5 +117,67 @@ describe("parseRuntimeConfigSaveRequest", () => {
 				boardPath: "   ",
 			});
 		}).toThrow();
+	});
+});
+
+describe("parseTaskImportRequest", () => {
+	it("trims import identifiers and defaults omitted arrays", () => {
+		expect(
+			parseTaskImportRequest({
+				version: "v1",
+				tasks: [
+					{
+						externalTaskKey: " ext-1 ",
+						title: " Task One ",
+						prompt: " do work ",
+						baseRef: " main ",
+					},
+				],
+			}),
+		).toEqual({
+			version: "v1",
+			tasks: [
+				{
+					externalTaskKey: "ext-1",
+					title: "Task One",
+					prompt: "do work",
+					baseRef: "main",
+				},
+			],
+		});
+	});
+
+	it("rejects empty task keys after trim", () => {
+		expect(() =>
+			parseTaskImportRequest({
+				version: "v1",
+				tasks: [
+					{
+						externalTaskKey: "   ",
+						prompt: "do work",
+					},
+				],
+			}),
+		).toThrow("Imported task externalTaskKey cannot be empty.");
+	});
+
+	it("rejects empty link identifiers after trim", () => {
+		expect(() =>
+			parseTaskImportRequest({
+				version: "v1",
+				tasks: [
+					{
+						externalTaskKey: "ext-1",
+						prompt: "do work",
+					},
+				],
+				links: [
+					{
+						fromExternalTaskKey: "ext-1",
+						toExternalTaskKey: "  ",
+					},
+				],
+			}),
+		).toThrow("Imported task links require non-empty fromExternalTaskKey and toExternalTaskKey.");
 	});
 });

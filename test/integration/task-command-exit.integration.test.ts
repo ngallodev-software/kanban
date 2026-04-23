@@ -330,6 +330,100 @@ describe("source task commands", () => {
 		}
 	});
 
+	it("exits after importing tasks from a JSON payload file", { timeout: 60_000 }, async () => {
+		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-import-exit-");
+		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-import-exit-");
+
+		try {
+			initGitRepository(projectPath);
+			writeFileSync(join(projectPath, "README.md"), "# Task Import Exit Test\n", "utf8");
+			commitAll(projectPath, "init");
+
+			const importFilePath = join(projectPath, "kanban-import.json");
+			writeFileSync(
+				importFilePath,
+				JSON.stringify(
+					{
+						version: "v1",
+						tasks: [
+							{ externalTaskKey: "cli-a", prompt: "CLI import task A", baseRef: "main" },
+							{ externalTaskKey: "cli-b", prompt: "CLI import task B", baseRef: "main" },
+						],
+						links: [{ fromExternalTaskKey: "cli-a", toExternalTaskKey: "cli-b" }],
+					},
+					null,
+					2,
+				),
+				"utf8",
+			);
+
+			const port = String(await getAvailablePort());
+			const env = createGitTestEnv({
+				HOME: homeDir,
+				USERPROFILE: homeDir,
+				KANBAN_RUNTIME_PORT: port,
+			});
+
+			const serverProcess = spawn(
+				process.execPath,
+				[
+					"--require",
+					resolveShutdownIpcHookPath(),
+					"--import",
+					resolveTsxLoaderImportSpecifier(),
+					resolve(process.cwd(), "src/cli.ts"),
+					"--no-open",
+				],
+				{
+					cwd: projectPath,
+					env,
+					stdio: ["ignore", "pipe", "pipe", "ipc"],
+				},
+			);
+
+			try {
+				await waitForServerStart(serverProcess);
+
+				const imported = await runCliCommandAndCollectOutput({
+					args: ["task", "import", "--file", importFilePath, "--project-path", projectPath],
+					cwd: projectPath,
+					env,
+				});
+
+				expect(
+					imported.didExit,
+					`task import did not exit in time.\nstdout:\n${imported.stdout}\nstderr:\n${imported.stderr}`,
+				).toBe(true);
+				expect(imported.exitCode).toBe(0);
+
+				const importedPayload = JSON.parse(imported.stdout) as {
+					ok?: boolean;
+					applied?: boolean;
+					taskMappings?: Array<{ externalTaskKey?: string; taskId?: string }>;
+					linkResults?: Array<{ dependencyId?: string }>;
+				};
+				expect(importedPayload.ok).toBe(true);
+				expect(importedPayload.applied).toBe(true);
+				expect(importedPayload.taskMappings).toHaveLength(2);
+				expect(importedPayload.taskMappings?.map((mapping) => mapping.externalTaskKey).sort()).toEqual([
+					"cli-a",
+					"cli-b",
+				]);
+				expect(typeof importedPayload.linkResults?.[0]?.dependencyId).toBe("string");
+			} finally {
+				await requestGracefulShutdown(serverProcess);
+				const stopped = await waitForExit(serverProcess, 5_000);
+				if (!stopped) {
+					serverProcess.kill("SIGKILL");
+					await waitForExit(serverProcess, 5_000);
+				}
+			}
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("opens only for launch invocations", { timeout: 60_000 }, async () => {
 		if (process.platform === "win32") {
 			return;
