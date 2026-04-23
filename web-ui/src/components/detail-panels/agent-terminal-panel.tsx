@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
+import { useTaskWorkspaceInfoValue, useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import { usePersistentTerminalSession } from "@/terminal/use-persistent-terminal-session";
 import { isMacPlatform } from "@/utils/platform";
 
@@ -176,6 +176,7 @@ function AgentTerminalPanelLayout({
 	const canStop = summary?.state === "running" || summary?.state === "awaiting_review";
 	const statusLabel = useMemo(() => describeState(summary), [summary]);
 	const statusTagStyle = useMemo(() => getStateTagStyle(summary), [summary]);
+	const taskWorkspaceInfo = useTaskWorkspaceInfoValue(taskId);
 	const agentLabel = useMemo(() => {
 		const normalizedCommand = agentCommand?.trim();
 		if (!normalizedCommand) {
@@ -183,6 +184,12 @@ function AgentTerminalPanelLayout({
 		}
 		return normalizedCommand.split(/\s+/)[0] ?? null;
 	}, [agentCommand]);
+	const taskWorkspaceSubtitle = taskWorkspaceInfo?.displayPath ?? minimalHeaderSubtitle;
+	const taskWorkspaceStatusLabel = taskWorkspaceSubtitle
+		? taskWorkspaceInfo?.exists === false
+			? "Task worktree missing"
+			: "Task worktree"
+		: null;
 
 	return (
 		<div
@@ -245,13 +252,18 @@ function AgentTerminalPanelLayout({
 						<span className="text-text-secondary" style={{ fontSize: 12 }}>
 							{minimalHeaderTitle}
 						</span>
-						{minimalHeaderSubtitle ? (
+						{taskWorkspaceStatusLabel ? (
+							<span className="inline-flex items-center rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-secondary">
+								{taskWorkspaceStatusLabel}
+							</span>
+						) : null}
+						{taskWorkspaceSubtitle ? (
 							<span
 								className="truncate font-mono text-text-secondary"
 								style={{ fontSize: 10 }}
-								title={minimalHeaderSubtitle}
+								title={taskWorkspaceSubtitle}
 							>
-								{minimalHeaderSubtitle}
+								{taskWorkspaceSubtitle}
 							</span>
 						) : null}
 					</div>

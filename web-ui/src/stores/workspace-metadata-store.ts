@@ -53,6 +53,7 @@ function toTaskWorkspaceInfo(metadata: RuntimeTaskWorkspaceMetadata): RuntimeTas
 	return {
 		taskId: metadata.taskId,
 		path: metadata.path,
+		displayPath: metadata.displayPath,
 		exists: metadata.exists,
 		baseRef: metadata.baseRef,
 		branch: metadata.branch,
@@ -65,6 +66,7 @@ function toTaskWorkspaceSnapshot(metadata: RuntimeTaskWorkspaceMetadata): Review
 	return {
 		taskId: metadata.taskId,
 		path: metadata.path,
+		displayPath: metadata.displayPath,
 		branch: metadata.branch,
 		isDetached: metadata.isDetached,
 		headCommit: metadata.headCommit,
@@ -121,6 +123,7 @@ function areTaskWorkspaceInfosEqual(
 	return (
 		a.taskId === b.taskId &&
 		a.path === b.path &&
+		a.displayPath === b.displayPath &&
 		a.exists === b.exists &&
 		a.baseRef === b.baseRef &&
 		a.branch === b.branch &&
@@ -142,6 +145,7 @@ function areTaskWorkspaceSnapshotsEqual(
 	return (
 		a.taskId === b.taskId &&
 		a.path === b.path &&
+		a.displayPath === b.displayPath &&
 		a.branch === b.branch &&
 		a.isDetached === b.isDetached &&
 		a.headCommit === b.headCommit &&

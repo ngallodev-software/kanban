@@ -9,7 +9,11 @@ import type {
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { getRuntimeHomePath, getTaskWorktreesHomePath, loadWorkspaceContext } from "../state/workspace-state";
 import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
-import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
+import {
+	buildTaskWorktreeDisplayPath,
+	getWorkspaceFolderLabelForWorktreePath,
+	normalizeTaskIdForWorktreePath,
+} from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
 
 const KANBAN_MANAGED_EXCLUDE_BLOCK_START = "# kanban-managed-symlinked-ignored-paths:start";
@@ -635,7 +639,7 @@ export async function getTaskWorkspacePathInfo(options: {
 	cwd: string;
 	taskId: string;
 	baseRef: string;
-}): Promise<Pick<RuntimeTaskWorkspaceInfoResponse, "taskId" | "path" | "exists" | "baseRef">> {
+}): Promise<Pick<RuntimeTaskWorkspaceInfoResponse, "taskId" | "path" | "displayPath" | "exists" | "baseRef">> {
 	const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 	const normalizedBaseRef = options.baseRef.trim();
 	const repoPath = options.cwd.trim();
@@ -652,6 +656,7 @@ export async function getTaskWorkspacePathInfo(options: {
 	return {
 		taskId,
 		path: worktreePath,
+		displayPath: buildTaskWorktreeDisplayPath(taskId, repoPath),
 		exists: await pathExists(worktreePath),
 		baseRef: normalizedBaseRef,
 	};
@@ -667,6 +672,7 @@ export async function getTaskWorkspaceInfo(options: {
 		return {
 			taskId: workspacePathInfo.taskId,
 			path: workspacePathInfo.path,
+			displayPath: workspacePathInfo.displayPath,
 			exists: false,
 			baseRef: workspacePathInfo.baseRef,
 			branch: null,
@@ -679,6 +685,7 @@ export async function getTaskWorkspaceInfo(options: {
 	return {
 		taskId: workspacePathInfo.taskId,
 		path: workspacePathInfo.path,
+		displayPath: workspacePathInfo.displayPath,
 		exists: true,
 		baseRef: workspacePathInfo.baseRef,
 		branch: headInfo.branch,

@@ -252,6 +252,7 @@ export function useGitActions({
 					? {
 							taskId,
 							path: snapshot.path,
+							displayPath: snapshot.displayPath ?? snapshot.path,
 							exists: true,
 							baseRef: selection.card.baseRef,
 							branch: snapshot.branch,

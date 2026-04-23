@@ -78,6 +78,7 @@ export interface BoardData {
 export interface ReviewTaskWorkspaceSnapshot {
 	taskId: string;
 	path: string;
+	displayPath?: string;
 	branch: string | null;
 	isDetached: boolean;
 	headCommit: string | null;
