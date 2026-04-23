@@ -15,7 +15,7 @@
 | `R-03` stable workspace identity | done | workspace index semantics unchanged |
 | `R-04` narrow persistence change | done | only board file relocates; sessions/meta remain in state dir |
 | `R-05` honest runtime contract | done | runtime responses expose `boardPath` only when a non-default override is active |
-| `R-06` configurability | done | persisted project runtime config is canonical source |
+| `R-06` configurability | done | persisted project runtime config is canonical source; board-path UI is hidden when no project config exists |
 | `R-07` loud failure behavior | done | malformed custom board path fails loudly; no silent fallback |
 | `R-08` test coverage | done | config, validation, workspace-state, and focused web tests updated |
 | `R-09` low drift | done | no SDK changes and no broad persistence redesign |
@@ -47,7 +47,7 @@
 2. Added canonical storage resolver and board-path migration helper.
 3. Refactored board load/save/mutate flows to use resolved board path.
 4. Added runtime save rollback so failed board relocation restores prior config.
-5. Added settings UI field for project board file path.
+5. Added settings UI field for project board file path, shown only when project config is available.
 6. Added config, validation, workspace-state, and focused web test coverage.
 
 ## Validation summary

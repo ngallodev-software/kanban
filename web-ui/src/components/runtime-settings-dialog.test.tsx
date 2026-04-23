@@ -260,6 +260,23 @@ describe("RuntimeSettingsDialog", () => {
 		expect(findButtonByText(document.body, "Report issue")).toBeNull();
 	});
 
+	it("hides board path controls when the workspace has no project config", async () => {
+		await act(async () => {
+			root.render(
+				<RuntimeSettingsDialog
+					open={true}
+					workspaceId={"workspace-1"}
+					initialConfig={savedClineOauthConfig}
+					onOpenChange={() => {}}
+				/>,
+			);
+		});
+
+		expect(document.body.textContent).not.toContain("Board file path");
+		expect(findButtonByText(document.body, "Use default")).toBeNull();
+		expect(document.body.textContent).not.toContain("board.json or .kanban/board.json");
+	});
+
 	it("calls the layout reset callback when reset layout is clicked", async () => {
 		await act(async () => {
 			root.render(
