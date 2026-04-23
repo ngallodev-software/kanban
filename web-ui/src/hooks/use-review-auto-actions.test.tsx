@@ -38,6 +38,7 @@ const workspaceSnapshots: Record<string, ReviewTaskWorkspaceSnapshot> = {
 	"task-1": {
 		taskId: "task-1",
 		path: "/tmp/task-1",
+		displayPath: "~/.cline/worktrees/task-1/kanban",
 		branch: "task-1",
 		isDetached: false,
 		headCommit: "abc123",

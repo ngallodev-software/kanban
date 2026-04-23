@@ -339,6 +339,7 @@ export type RuntimeProjectSummary = z.infer<typeof runtimeProjectSummarySchema>;
 export const runtimeTaskWorkspaceMetadataSchema = z.object({
 	taskId: z.string(),
 	path: z.string(),
+	displayPath: z.string(),
 	exists: z.boolean(),
 	baseRef: z.string(),
 	branch: z.string().nullable(),
@@ -576,6 +577,7 @@ export type RuntimeTaskWorkspaceInfoRequest = z.infer<typeof runtimeTaskWorkspac
 export const runtimeTaskWorkspaceInfoResponseSchema = z.object({
 	taskId: z.string(),
 	path: z.string(),
+	displayPath: z.string(),
 	exists: z.boolean(),
 	baseRef: z.string(),
 	branch: z.string().nullable(),

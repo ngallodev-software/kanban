@@ -16,7 +16,7 @@ import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
+import { useTaskWorkspaceInfoValue, useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
 import { formatPathForDisplay } from "@/utils/path-display";
@@ -453,11 +453,24 @@ export function BoardCard({
 	};
 	const statusMarker = renderStatusMarker();
 	const showWorkspaceStatus = columnId === "in_progress" || columnId === "review" || isTrashCard;
-	const reviewWorkspacePath = reviewWorkspaceSnapshot
-		? formatPathForDisplay(reviewWorkspaceSnapshot.path)
-		: isTrashCard
-			? reconstructTaskWorktreeDisplayPath(card.id, workspacePath)
-			: null;
+	const reviewWorkspaceInfo = useTaskWorkspaceInfoValue(card.id, card.baseRef);
+	const reviewWorkspacePath = reviewWorkspaceSnapshot?.displayPath
+		? reviewWorkspaceSnapshot.displayPath
+		: reviewWorkspaceSnapshot
+			? formatPathForDisplay(reviewWorkspaceSnapshot.path)
+			: reviewWorkspaceInfo?.displayPath
+				? formatPathForDisplay(reviewWorkspaceInfo.displayPath)
+				: isTrashCard
+					? reconstructTaskWorktreeDisplayPath(card.id, workspacePath)
+					: null;
+	const reviewWorkspaceStatusLabel =
+		reviewWorkspacePath == null
+			? null
+			: reviewWorkspaceInfo?.exists === false
+				? isTrashCard
+					? "Task worktree deleted"
+					: "Task worktree not created yet"
+				: "Task worktree";
 	const reviewRefLabel = reviewWorkspaceSnapshot?.branch ?? reviewWorkspaceSnapshot?.headCommit?.slice(0, 8) ?? "HEAD";
 	const reviewChangeSummary = reviewWorkspaceSnapshot
 		? reviewWorkspaceSnapshot.changedFiles == null
@@ -851,53 +864,81 @@ export function BoardCard({
 								</div>
 							) : null}
 							{showWorkspaceStatus && reviewWorkspacePath ? (
-								<p
-									className="font-mono"
-									style={{
-										margin: "4px 0 0",
-										fontSize: 12,
-										lineHeight: 1.4,
-										whiteSpace: "normal",
-										overflowWrap: "anywhere",
-										color: isTrashCard ? SESSION_ACTIVITY_COLOR.muted : undefined,
-									}}
-								>
-									{isTrashCard ? (
-										<span
-											style={{
-												color: SESSION_ACTIVITY_COLOR.muted,
-												textDecoration: "line-through",
-											}}
-										>
-											{reviewWorkspacePath}
-										</span>
-									) : reviewWorkspaceSnapshot ? (
-										<>
-											<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>{reviewWorkspacePath}</span>
-											<GitBranch
-												size={10}
+								<div className="mt-1">
+									<span
+										className={cn(
+											"inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs",
+											reviewWorkspaceInfo?.exists === false
+												? isTrashCard
+													? "border-border bg-surface-1 text-text-tertiary"
+													: "border-status-orange/30 bg-status-orange/10 text-status-orange"
+												: "border-border bg-surface-1 text-text-secondary",
+										)}
+									>
+										<GitBranch size={12} className="shrink-0" />
+										<span className="truncate">{reviewWorkspaceStatusLabel}</span>
+									</span>
+									<p
+										className="font-mono"
+										style={{
+											margin: "4px 0 0",
+											fontSize: 12,
+											lineHeight: 1.4,
+											whiteSpace: "normal",
+											overflowWrap: "anywhere",
+											color: isTrashCard ? SESSION_ACTIVITY_COLOR.muted : undefined,
+										}}
+									>
+										{isTrashCard ? (
+											<span
 												style={{
-													display: "inline",
-													color: SESSION_ACTIVITY_COLOR.secondary,
-													margin: "0px 4px 2px",
-													verticalAlign: "middle",
+													color: SESSION_ACTIVITY_COLOR.muted,
+													textDecoration: "line-through",
 												}}
-											/>
-											<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>{reviewRefLabel}</span>
-											{reviewChangeSummary ? (
-												<>
-													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}> (</span>
-													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>
-														{reviewChangeSummary.filesLabel}
-													</span>
-													<span className="text-status-green"> +{reviewChangeSummary.additions}</span>
-													<span className="text-status-red"> -{reviewChangeSummary.deletions}</span>
-													<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>)</span>
-												</>
-											) : null}
-										</>
-									) : null}
-								</p>
+											>
+												{reviewWorkspacePath}
+											</span>
+										) : reviewWorkspaceSnapshot ? (
+											<>
+												<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>
+													{reviewWorkspacePath}
+												</span>
+												<GitBranch
+													size={10}
+													style={{
+														display: "inline",
+														color: SESSION_ACTIVITY_COLOR.secondary,
+														margin: "0px 4px 2px",
+														verticalAlign: "middle",
+													}}
+												/>
+												<span style={{ color: SESSION_ACTIVITY_COLOR.secondary }}>{reviewRefLabel}</span>
+												{reviewChangeSummary ? (
+													<>
+														<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}> (</span>
+														<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>
+															{reviewChangeSummary.filesLabel}
+														</span>
+														<span className="text-status-green"> +{reviewChangeSummary.additions}</span>
+														<span className="text-status-red"> -{reviewChangeSummary.deletions}</span>
+														<span style={{ color: SESSION_ACTIVITY_COLOR.muted }}>)</span>
+													</>
+												) : null}
+											</>
+										) : reviewWorkspaceInfo?.exists === false ? (
+											<span
+												style={{
+													color: SESSION_ACTIVITY_COLOR.muted,
+													textDecoration: "line-through",
+												}}
+											>
+												{reviewWorkspacePath}
+											</span>
+										) : (
+											reviewWorkspacePath
+										)}
+									</p>
+								</div>
 							) : null}
 							{showReviewGitActions ? (
 								<div className="flex gap-1.5 mt-1.5">

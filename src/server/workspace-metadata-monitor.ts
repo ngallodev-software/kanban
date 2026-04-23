@@ -96,6 +96,7 @@ function areTaskMetadataEqual(a: RuntimeTaskWorkspaceMetadata, b: RuntimeTaskWor
 	return (
 		a.taskId === b.taskId &&
 		a.path === b.path &&
+		a.displayPath === b.displayPath &&
 		a.exists === b.exists &&
 		a.baseRef === b.baseRef &&
 		a.branch === b.branch &&
@@ -203,6 +204,7 @@ async function loadTaskWorkspaceMetadata(
 			data: {
 				taskId: task.taskId,
 				path: pathInfo.path,
+				displayPath: pathInfo.displayPath,
 				exists: false,
 				baseRef: pathInfo.baseRef,
 				branch: null,
@@ -232,6 +234,7 @@ async function loadTaskWorkspaceMetadata(
 			data: {
 				taskId: task.taskId,
 				path: pathInfo.path,
+				displayPath: pathInfo.displayPath,
 				exists: true,
 				baseRef: pathInfo.baseRef,
 				branch: probe.currentBranch,
@@ -252,6 +255,7 @@ async function loadTaskWorkspaceMetadata(
 			data: {
 				taskId: task.taskId,
 				path: pathInfo.path,
+				displayPath: pathInfo.displayPath,
 				exists: true,
 				baseRef: pathInfo.baseRef,
 				branch: null,

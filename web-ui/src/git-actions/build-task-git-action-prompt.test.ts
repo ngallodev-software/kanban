@@ -13,6 +13,7 @@ describe("buildTaskGitActionPrompt", () => {
 				workspaceInfo: {
 					taskId: "task-123",
 					path: "/tmp/task-123",
+					displayPath: "~/.cline/worktrees/task-123/kanban",
 					exists: true,
 					baseRef: "main",
 					branch: null,
@@ -33,6 +34,7 @@ describe("buildTaskGitActionPrompt", () => {
 				workspaceInfo: {
 					taskId: "task-123",
 					path: "/tmp/task-123",
+					displayPath: "~/.cline/worktrees/task-123/kanban",
 					exists: true,
 					baseRef: "main",
 					branch: null,
