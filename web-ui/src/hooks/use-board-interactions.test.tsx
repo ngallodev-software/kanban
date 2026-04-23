@@ -11,6 +11,8 @@ const notifyErrorMock = vi.hoisted(() => vi.fn());
 const showAppToastMock = vi.hoisted(() => vi.fn());
 const useLinkedBacklogTaskActionsMock = vi.hoisted(() => vi.fn());
 const useProgrammaticCardMovesMock = vi.hoisted(() => vi.fn());
+const clearTaskWorkspaceInfoMock = vi.hoisted(() => vi.fn());
+const setTaskWorkspaceInfoMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/app-toaster", () => ({
 	notifyError: notifyErrorMock,
@@ -27,6 +29,11 @@ vi.mock("@/hooks/use-programmatic-card-moves", () => ({
 
 vi.mock("@/hooks/use-review-auto-actions", () => ({
 	useReviewAutoActions: () => ({}) as ReturnType<typeof useBoardInteractions>,
+}));
+
+vi.mock("@/stores/workspace-metadata-store", () => ({
+	clearTaskWorkspaceInfo: clearTaskWorkspaceInfoMock,
+	setTaskWorkspaceInfo: setTaskWorkspaceInfoMock,
 }));
 
 function createTask(taskId: string, prompt: string, createdAt: number): BoardCard {
@@ -91,6 +98,7 @@ function HookHarness({
 	ensureTaskWorkspace,
 	startTaskSession,
 	initialSessions = {},
+	selectedTaskId = null,
 	selectedCard = null,
 	setSelectedTaskIdOverride,
 	onSnapshot,
@@ -99,6 +107,8 @@ function HookHarness({
 	setBoard: Dispatch<SetStateAction<BoardData>>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
+	initialSessions?: Record<string, RuntimeTaskSessionSummary>;
+	selectedTaskId?: string | null;
 	initialSessions?: Record<string, RuntimeTaskSessionSummary>;
 	selectedCard?: { card: BoardCard; column: { id: "backlog" | "in_progress" | "review" | "trash" } } | null;
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
@@ -115,7 +125,7 @@ function HookHarness({
 		sessions,
 		setSessions,
 		selectedCard,
-		selectedTaskId: null,
+		selectedTaskId,
 		currentProjectId: "project-1",
 		setSelectedTaskId: setSelectedTaskIdOverride ?? setSelectedTaskId,
 		setIsClearTrashDialogOpen,
@@ -162,6 +172,8 @@ describe("useBoardInteractions", () => {
 		showAppToastMock.mockReset();
 		useLinkedBacklogTaskActionsMock.mockReset();
 		useProgrammaticCardMovesMock.mockReset();
+		clearTaskWorkspaceInfoMock.mockReset();
+		setTaskWorkspaceInfoMock.mockReset();
 		previousActEnvironment = (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
 			.IS_REACT_ACT_ENVIRONMENT;
 		(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -221,6 +233,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-1",
+				displayPath: "~/.cline/worktrees/task-1/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 			},
@@ -255,6 +268,77 @@ describe("useBoardInteractions", () => {
 		expect(started).toBe(true);
 		expect(ensureTaskWorkspace).toHaveBeenCalledWith(backlogTask);
 		expect(startTaskSession).toHaveBeenCalledWith(backlogTask);
+	});
+
+	it("stores the canonical display path during optimistic task-start updates", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		useProgrammaticCardMovesMock.mockReturnValue({
+			handleProgrammaticCardMoveReady: () => {},
+			setRequestMoveTaskToTrashHandler: () => {},
+			tryProgrammaticCardMove: () => "unavailable" as const,
+			consumeProgrammaticCardMove: () => ({}),
+			resolvePendingProgrammaticTrashMove: () => {},
+			waitForProgrammaticCardMoveAvailability: async () => {},
+			resetProgrammaticCardMoves: () => {},
+			requestMoveTaskToTrashWithAnimation: async () => {},
+			programmaticCardMoveCycle: 0,
+		});
+
+		useLinkedBacklogTaskActionsMock.mockReturnValue({
+			handleCreateDependency: () => {},
+			handleDeleteDependency: () => {},
+			confirmMoveTaskToTrash: async () => {},
+			requestMoveTaskToTrash: async () => {},
+		});
+
+		const board = createBoard();
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>(() => {});
+		const ensureTaskWorkspace = vi.fn(async () => ({
+			ok: true as const,
+			response: {
+				ok: true as const,
+				path: "/tmp/task-1",
+				displayPath: "~/.cline/worktrees/task-1/kanban",
+				baseRef: "main",
+				baseCommit: "abc123",
+			},
+		}));
+		const startTaskSession = vi.fn(async () => ({ ok: true as const }));
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={board}
+					setBoard={setBoard}
+					ensureTaskWorkspace={ensureTaskWorkspace}
+					startTaskSession={startTaskSession}
+					selectedTaskId="task-1"
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (!latestSnapshot) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			latestSnapshot!.handleStartTask("task-1");
+			for (let i = 0; i < 10; i++) {
+				await Promise.resolve();
+			}
+		});
+
+		expect(ensureTaskWorkspace).toHaveBeenCalledWith(board.columns[0]!.cards[0]!);
+		expect(setTaskWorkspaceInfoMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskId: "task-1",
+				path: "/tmp/task-1",
+				displayPath: "~/.cline/worktrees/task-1/kanban",
+			}),
+		);
 	});
 
 	it("waits for a new backlog card height to settle before starting animation", async () => {
@@ -301,6 +385,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-1",
+				displayPath: "~/.cline/worktrees/task-1/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 			},
@@ -491,6 +576,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-1",
+				displayPath: "~/.cline/worktrees/task-1/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 			},
@@ -664,6 +750,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-trash",
+				displayPath: "~/.cline/worktrees/task-trash/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 				warning: "Saved task changes could not be reapplied automatically.",
@@ -774,6 +861,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-trash-model",
+				displayPath: "~/.cline/worktrees/task-trash-model/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 			},

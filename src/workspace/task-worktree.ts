@@ -440,6 +440,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 		const context = await loadWorkspaceContext(options.cwd);
 		const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 		const worktreePath = getTaskWorktreePath(context.repoPath, taskId);
+		const displayPath = buildTaskWorktreeDisplayPath(taskId, context.repoPath);
 		// Investigation note: ensure is called on every task start. The previous implementation
 		// compared the worktree HEAD to the latest baseRef commit and recreated the worktree
 		// when the base branch advanced, which could destroy valid task progress. Existing
@@ -450,6 +451,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			return {
 				ok: true,
 				path: worktreePath,
+				displayPath,
 				baseRef: options.baseRef.trim(),
 				baseCommit: existingResult.stdout,
 			};
@@ -462,6 +464,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 				return {
 					ok: true,
 					path: worktreePath,
+					displayPath,
 					baseRef: options.baseRef.trim(),
 					baseCommit: lockedExistingCommit,
 				};
@@ -542,6 +545,7 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 			return {
 				ok: true,
 				path: worktreePath,
+				displayPath,
 				baseRef: requestedBaseRef,
 				baseCommit,
 				warning,

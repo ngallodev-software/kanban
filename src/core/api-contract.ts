@@ -541,6 +541,7 @@ export const runtimeWorktreeEnsureResponseSchema = z.union([
 	z.object({
 		ok: z.literal(true),
 		path: z.string(),
+		displayPath: z.string(),
 		baseRef: z.string(),
 		baseCommit: z.string(),
 		warning: z.string().optional(),
