@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BoardCard } from "@/components/board-card";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
 import type { ReviewTaskWorkspaceSnapshot } from "@/types";
 
+let mockWorkspaceInfo: RuntimeTaskWorkspaceInfoResponse | undefined;
 let mockWorkspaceSnapshot: ReviewTaskWorkspaceSnapshot | undefined;
 let mockMeasureWidths = [240, 240, 240];
 let mockMeasureCallCount = 0;
@@ -30,6 +31,7 @@ vi.mock("@hello-pangea/dnd", () => ({
 }));
 
 vi.mock("@/stores/workspace-metadata-store", () => ({
+	useTaskWorkspaceInfoValue: () => mockWorkspaceInfo,
 	useTaskWorkspaceSnapshotValue: () => mockWorkspaceSnapshot,
 }));
 
@@ -144,6 +146,7 @@ describe("BoardCard", () => {
 	let previousActEnvironment: boolean | undefined;
 
 	beforeEach(() => {
+		mockWorkspaceInfo = undefined;
 		mockWorkspaceSnapshot = undefined;
 		mockMeasureWidths = [240, 240, 240];
 		mockMeasureCallCount = 0;
@@ -262,13 +265,62 @@ describe("BoardCard", () => {
 			);
 		});
 
+		expect(container.textContent).toContain("Task worktree");
 		expect(container.textContent).toContain("~/.cline/worktrees/trash-task-1/kanban");
+	});
+
+	it("prefers the canonical display path from workspace metadata when it is available", async () => {
+		mockWorkspaceInfo = {
+			taskId: "task-1",
+			path: "/tmp/worktrees/task-1",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
+			exists: true,
+			baseRef: "main",
+			branch: "feature/traceability",
+			isDetached: false,
+			headCommit: "1234567890abcdef",
+		};
+
+		await act(async () => {
+			root.render(<BoardCard card={createCard({ id: "task-1" })} index={0} columnId="review" />);
+		});
+
+		expect(container.textContent).toContain("Task worktree");
+		expect(container.textContent).toContain("~/.cline/worktrees/task-1/kanban");
+		expect(container.textContent).not.toContain("/tmp/worktrees/task-1");
+	});
+
+	it("shows the metadata snapshot worktree path on active review cards", async () => {
+		mockWorkspaceSnapshot = {
+			taskId: "task-1",
+			path: "/tmp/worktrees/task-1",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
+			branch: "feature/traceability",
+			isDetached: false,
+			headCommit: "1234567890abcdef",
+			changedFiles: 3,
+			additions: 12,
+			deletions: 4,
+		};
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<BoardCard card={createCard()} index={0} columnId="review" workspacePath="/tmp/project-root" />
+				</TooltipProvider>,
+			);
+		});
+
+		expect(container.textContent).toContain("~/.cline/worktrees/task-1/kanban");
+		expect(container.textContent).toContain("feature/traceability");
+		expect(container.textContent).not.toContain("/tmp/project-root");
 	});
 
 	it("shows formatted agent override details with model name and reasoning effort", async () => {
 		mockWorkspaceSnapshot = {
 			taskId: "task-1",
 			path: "/tmp/worktrees/task-1",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
 			branch: "feature/override",
 			isDetached: false,
 			headCommit: "1234567890abcdef",

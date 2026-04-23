@@ -1081,6 +1081,7 @@ describe("ClineAgentChatPanel", () => {
 		setTaskWorkspaceSnapshot({
 			taskId: "task-1",
 			path: "/tmp/worktree",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
 			branch: "task-1",
 			isDetached: false,
 			headCommit: "abc1234",
@@ -1134,6 +1135,7 @@ describe("ClineAgentChatPanel", () => {
 		setTaskWorkspaceSnapshot({
 			taskId: "task-1",
 			path: "/tmp/worktree",
+			displayPath: "~/.cline/worktrees/task-1/kanban",
 			branch: "task-1",
 			isDetached: false,
 			headCommit: "def5678",
