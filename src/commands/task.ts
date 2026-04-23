@@ -9,11 +9,11 @@ import type {
 	RuntimeBoardColumnId,
 	RuntimeBoardDependency,
 	RuntimeClineReasoningEffort,
-	RuntimeTaskImportRequest,
 	RuntimeTaskClineSettings,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import { runtimeAgentIdSchema, runtimeClineReasoningEffortSchema } from "../core/api-contract";
+import { parseTaskImportRequest } from "../core/api-validation";
 import { buildKanbanRuntimeUrl, getKanbanRuntimeOrigin, getRuntimeFetch } from "../core/runtime-endpoint";
 import {
 	addTaskDependency,
@@ -759,11 +759,7 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 	};
 }
 
-async function importTasksCommand(input: {
-	cwd: string;
-	filePath: string;
-	projectPath?: string;
-}): Promise<JsonRecord> {
+async function importTasksCommand(input: { cwd: string; filePath: string; projectPath?: string }): Promise<JsonRecord> {
 	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
 	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
 	const runtimeClient = createRuntimeTrpcClient(workspaceId);
@@ -776,7 +772,8 @@ async function importTasksCommand(input: {
 		throw new Error(`Invalid JSON in import file ${resolvedFilePath}: ${toErrorMessage(error)}`);
 	}
 
-	const imported = await runtimeClient.workspace.importTasks.mutate(payload as RuntimeTaskImportRequest);
+	const validatedPayload = parseTaskImportRequest(payload);
+	const imported = await runtimeClient.workspace.importTasks.mutate(validatedPayload);
 	return {
 		...imported,
 		importFilePath: resolvedFilePath,

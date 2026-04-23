@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RuntimeTaskSessionSummary, RuntimeWorkspaceStateResponse } from "../../../src/core/api-contract";
+import { moveTaskToColumn } from "../../../src/core/task-board-mutations";
 
 const workspaceStateMocks = vi.hoisted(() => ({
 	mutateWorkspaceState: vi.fn(),
@@ -167,6 +168,87 @@ describe("createWorkspaceApi importTasks", () => {
 		expect(currentState.board.columns[0]?.cards).toHaveLength(2);
 		expect(currentState.board.dependencies).toHaveLength(1);
 		expect(broadcastRuntimeWorkspaceStateUpdated).toHaveBeenCalledTimes(1);
+	});
+
+	it("reuses an existing dependency when replay swaps link direction", async () => {
+		const api = createWorkspaceApi({
+			ensureTerminalManagerForWorkspace: vi.fn(),
+			getScopedClineTaskSessionService: vi.fn(),
+			broadcastRuntimeWorkspaceStateUpdated: vi.fn(),
+			broadcastRuntimeProjectsUpdated: vi.fn(),
+			buildWorkspaceStateSnapshot: vi.fn(async () => currentState),
+		});
+
+		const first = await api.importTasks(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{
+				version: "v1",
+				tasks: [
+					{ externalTaskKey: "a", prompt: "Task A", baseRef: "main" },
+					{ externalTaskKey: "b", prompt: "Task B", baseRef: "main" },
+				],
+				links: [{ fromExternalTaskKey: "a", toExternalTaskKey: "b" }],
+			},
+		);
+
+		expect(first.ok).toBe(true);
+		const existingDependencyId = first.linkResults[0]?.dependencyId;
+		expect(typeof existingDependencyId).toBe("string");
+
+		const backlogReplay = await api.importTasks(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{
+				version: "v1",
+				tasks: [
+					{ externalTaskKey: "a", prompt: "Task A", baseRef: "main" },
+					{ externalTaskKey: "b", prompt: "Task B", baseRef: "main" },
+				],
+				links: [{ fromExternalTaskKey: "b", toExternalTaskKey: "a" }],
+			},
+		);
+
+		expect(backlogReplay.ok).toBe(true);
+		expect(backlogReplay.linkResults[0]).toEqual({
+			fromExternalTaskKey: "b",
+			toExternalTaskKey: "a",
+			dependencyId: existingDependencyId,
+			created: false,
+		});
+		expect(currentState.board.dependencies).toHaveLength(1);
+
+		const taskBId = first.taskMappings.find((mapping) => mapping.externalTaskKey === "b")?.taskId;
+		expect(typeof taskBId).toBe("string");
+		if (!taskBId) {
+			throw new Error("Expected task mapping for externalTaskKey b.");
+		}
+		currentState = {
+			...currentState,
+			board: moveTaskToColumn(currentState.board, taskBId, "in_progress").board,
+		};
+
+		const second = await api.importTasks(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{
+				version: "v1",
+				tasks: [
+					{ externalTaskKey: "a", prompt: "Task A", baseRef: "main" },
+					{ externalTaskKey: "b", prompt: "Task B", baseRef: "main" },
+				],
+				links: [{ fromExternalTaskKey: "b", toExternalTaskKey: "a" }],
+			},
+		);
+
+		expect(second.ok).toBe(true);
+		expect(second.linkResults).toEqual([
+			{
+				fromExternalTaskKey: "b",
+				toExternalTaskKey: "a",
+				dependencyId: existingDependencyId,
+				created: false,
+			},
+		]);
+		expect(currentState.board.dependencies).toHaveLength(1);
+		expect(currentState.board.dependencies[0]?.id).toBe(existingDependencyId);
 	});
 
 	it("fails closed when an external task key conflicts with existing task intent", async () => {
