@@ -19,6 +19,7 @@ Recommended v1:
 - make `board.json` path configurable
 - do not redesign workspace identity
 - do not relocate `sessions.json` or `meta.json` in v1 unless required by evidence
+- surface the board-path setting only in project-scoped runtime config
 
 Read in this order:
 1. `05-refs-existing-behavior.md`
