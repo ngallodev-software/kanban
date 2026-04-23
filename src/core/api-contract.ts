@@ -124,6 +124,7 @@ function normalizeRuntimeTaskClineSettings(input: {
 export const runtimeBoardCardSchema = z
 	.object({
 		id: z.string(),
+		externalTaskKey: z.string().optional(),
 		title: z.string().optional(),
 		prompt: z.string(),
 		startInPlanMode: z.boolean(),
@@ -301,6 +302,91 @@ export const runtimeWorkspaceStateResponseSchema = z.object({
 	revision: z.number(),
 });
 export type RuntimeWorkspaceStateResponse = z.infer<typeof runtimeWorkspaceStateResponseSchema>;
+
+export const runtimeTaskImportVersionSchema = z.literal("v1");
+export type RuntimeTaskImportVersion = z.infer<typeof runtimeTaskImportVersionSchema>;
+
+export const runtimeTaskImportTaskSchema = z.object({
+	externalTaskKey: z.string(),
+	title: z.string().optional(),
+	prompt: z.string(),
+	startInPlanMode: z.boolean().optional(),
+	autoReviewEnabled: z.boolean().optional(),
+	autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
+	images: z.array(runtimeTaskImageSchema).optional(),
+	agentId: runtimeAgentIdSchema.optional(),
+	clineSettings: runtimeTaskClineSettingsSchema.optional(),
+	baseRef: z.string().optional(),
+});
+export type RuntimeTaskImportTask = z.infer<typeof runtimeTaskImportTaskSchema>;
+
+export const runtimeTaskImportLinkSchema = z.object({
+	fromExternalTaskKey: z.string(),
+	toExternalTaskKey: z.string(),
+});
+export type RuntimeTaskImportLink = z.infer<typeof runtimeTaskImportLinkSchema>;
+
+export const runtimeTaskImportRequestSchema = z.object({
+	version: runtimeTaskImportVersionSchema,
+	tasks: z.array(runtimeTaskImportTaskSchema),
+	links: z.array(runtimeTaskImportLinkSchema).optional(),
+	startTaskExternalKeys: z.array(z.string()).optional(),
+});
+export type RuntimeTaskImportRequest = z.infer<typeof runtimeTaskImportRequestSchema>;
+
+export const runtimeTaskImportTaskMappingSchema = z.object({
+	externalTaskKey: z.string(),
+	taskId: z.string(),
+	columnId: runtimeBoardColumnIdSchema,
+	created: z.boolean(),
+});
+export type RuntimeTaskImportTaskMapping = z.infer<typeof runtimeTaskImportTaskMappingSchema>;
+
+export const runtimeTaskImportLinkResultSchema = z.object({
+	fromExternalTaskKey: z.string(),
+	toExternalTaskKey: z.string(),
+	dependencyId: z.string(),
+	created: z.boolean(),
+});
+export type RuntimeTaskImportLinkResult = z.infer<typeof runtimeTaskImportLinkResultSchema>;
+
+export const runtimeTaskImportStartResultSchema = z.object({
+	externalTaskKey: z.string(),
+	taskId: z.string(),
+	ok: z.boolean(),
+	summary: runtimeTaskSessionSummarySchema.nullable().optional(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskImportStartResult = z.infer<typeof runtimeTaskImportStartResultSchema>;
+
+export const runtimeTaskImportErrorCodeSchema = z.enum([
+	"conflicting_task_intent",
+	"duplicate_task_key",
+	"missing_link_task",
+	"invalid_link",
+	"invalid_start_task",
+]);
+export type RuntimeTaskImportErrorCode = z.infer<typeof runtimeTaskImportErrorCodeSchema>;
+
+export const runtimeTaskImportErrorSchema = z.object({
+	code: runtimeTaskImportErrorCodeSchema,
+	message: z.string(),
+	externalTaskKey: z.string().optional(),
+	fromExternalTaskKey: z.string().optional(),
+	toExternalTaskKey: z.string().optional(),
+});
+export type RuntimeTaskImportError = z.infer<typeof runtimeTaskImportErrorSchema>;
+
+export const runtimeTaskImportResponseSchema = z.object({
+	version: runtimeTaskImportVersionSchema,
+	ok: z.boolean(),
+	applied: z.boolean(),
+	taskMappings: z.array(runtimeTaskImportTaskMappingSchema),
+	linkResults: z.array(runtimeTaskImportLinkResultSchema),
+	startResults: z.array(runtimeTaskImportStartResultSchema),
+	error: runtimeTaskImportErrorSchema.optional(),
+});
+export type RuntimeTaskImportResponse = z.infer<typeof runtimeTaskImportResponseSchema>;
 
 export const runtimeWorkspaceStateSaveRequestSchema = z.object({
 	board: runtimeBoardDataSchema,

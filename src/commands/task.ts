@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import type { Command } from "commander";
 
@@ -7,6 +9,7 @@ import type {
 	RuntimeBoardColumnId,
 	RuntimeBoardDependency,
 	RuntimeClineReasoningEffort,
+	RuntimeTaskImportRequest,
 	RuntimeTaskClineSettings,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
@@ -756,6 +759,31 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 	};
 }
 
+async function importTasksCommand(input: {
+	cwd: string;
+	filePath: string;
+	projectPath?: string;
+}): Promise<JsonRecord> {
+	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
+	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+	const resolvedFilePath = resolve(input.cwd, input.filePath);
+	const rawPayload = await readFile(resolvedFilePath, "utf8");
+	let payload: unknown;
+	try {
+		payload = JSON.parse(rawPayload);
+	} catch (error) {
+		throw new Error(`Invalid JSON in import file ${resolvedFilePath}: ${toErrorMessage(error)}`);
+	}
+
+	const imported = await runtimeClient.workspace.importTasks.mutate(payload as RuntimeTaskImportRequest);
+	return {
+		...imported,
+		importFilePath: resolvedFilePath,
+		workspacePath: workspaceRepoPath,
+	};
+}
+
 interface TrashTaskExecutionResult {
 	task: JsonRecord;
 	taskId: string;
@@ -1258,6 +1286,22 @@ export function registerTaskCommand(program: Command): void {
 						cwd: process.cwd(),
 						taskId: options.taskId,
 						column: options.column,
+						projectPath: options.projectPath,
+					}),
+			);
+		});
+
+	task
+		.command("import")
+		.description("Import a versioned task graph payload into Kanban.")
+		.requiredOption("--file <path>", "Path to the JSON import payload.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { file: string; projectPath?: string }) => {
+			await runTaskCommand(
+				async () =>
+					await importTasksCommand({
+						cwd: process.cwd(),
+						filePath: options.file,
 						projectPath: options.projectPath,
 					}),
 			);
