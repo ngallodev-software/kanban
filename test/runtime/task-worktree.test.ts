@@ -23,6 +23,7 @@ const workspaceStateMocks = vi.hoisted(() => ({
 }));
 
 const taskWorktreePathMocks = vi.hoisted(() => ({
+	buildTaskWorktreeDisplayPath: vi.fn(),
 	getWorkspaceFolderLabelForWorktreePath: vi.fn(),
 	normalizeTaskIdForWorktreePath: vi.fn(),
 }));
@@ -47,6 +48,7 @@ vi.mock("../../src/state/workspace-state.js", () => ({
 }));
 
 vi.mock("../../src/workspace/task-worktree-path.js", () => ({
+	buildTaskWorktreeDisplayPath: taskWorktreePathMocks.buildTaskWorktreeDisplayPath,
 	getWorkspaceFolderLabelForWorktreePath: taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath,
 	KANBAN_TASK_WORKTREES_DIR_NAME: "worktrees",
 	normalizeTaskIdForWorktreePath: taskWorktreePathMocks.normalizeTaskIdForWorktreePath,
@@ -110,6 +112,7 @@ describe.sequential("task-worktree serialization", () => {
 		workspaceStateMocks.getTaskWorktreesHomePath.mockReset();
 		workspaceStateMocks.loadWorkspaceContext.mockReset();
 		taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath.mockReset();
+		taskWorktreePathMocks.buildTaskWorktreeDisplayPath.mockReset();
 		taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockReset();
 
 		let lockQueue = Promise.resolve();
@@ -150,6 +153,9 @@ describe.sequential("task-worktree serialization", () => {
 			workspaceStateMocks.loadWorkspaceContext.mockResolvedValue({
 				repoPath,
 			});
+			taskWorktreePathMocks.buildTaskWorktreeDisplayPath.mockImplementation(
+				(taskId: string) => `~/.cline/worktrees/${taskId}/repo`,
+			);
 			taskWorktreePathMocks.getWorkspaceFolderLabelForWorktreePath.mockReturnValue("repo");
 			taskWorktreePathMocks.normalizeTaskIdForWorktreePath.mockImplementation((taskId: string) => taskId);
 
