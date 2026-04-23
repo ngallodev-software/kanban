@@ -420,7 +420,7 @@ export function BoardCard({
 	const reviewWorkspacePath = reviewWorkspaceSnapshot?.displayPath
 		? reviewWorkspaceSnapshot.displayPath
 		: reviewWorkspaceSnapshot
-			? reviewWorkspaceSnapshot.path
+			? formatPathForDisplay(reviewWorkspaceSnapshot.path)
 			: reviewWorkspaceInfo?.displayPath
 				? reviewWorkspaceInfo.displayPath
 				: isTrashCard
