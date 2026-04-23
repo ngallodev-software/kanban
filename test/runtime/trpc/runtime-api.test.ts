@@ -55,6 +55,22 @@ const browserMocks = vi.hoisted(() => ({
 	openInBrowser: vi.fn(),
 }));
 
+const runtimeConfigMocks = vi.hoisted(() => ({
+	saveRuntimeConfig: vi.fn(),
+	updateGlobalRuntimeConfig: vi.fn(),
+	updateRuntimeConfig: vi.fn(),
+}));
+
+const workspaceStateMocks = vi.hoisted(() => ({
+	getWorkspacesRootPath: vi.fn(),
+	loadWorkspaceContext: vi.fn(),
+	reconfigureWorkspaceBoardPath: vi.fn(),
+}));
+
+const lockedFileSystemMocks = vi.hoisted(() => ({
+	withLock: vi.fn(),
+}));
+
 vi.mock("../../../src/terminal/agent-registry.js", () => ({
 	resolveAgentCommand: agentRegistryMocks.resolveAgentCommand,
 	buildRuntimeConfigResponse: agentRegistryMocks.buildRuntimeConfigResponse,
@@ -67,6 +83,23 @@ vi.mock("../../../src/workspace/task-worktree.js", () => ({
 vi.mock("../../../src/workspace/turn-checkpoints.js", () => ({
 	captureTaskTurnCheckpoint: turnCheckpointMocks.captureTaskTurnCheckpoint,
 }));
+
+vi.mock("../../../src/state/workspace-state.js", () => ({
+	getWorkspacesRootPath: workspaceStateMocks.getWorkspacesRootPath,
+	loadWorkspaceContext: workspaceStateMocks.loadWorkspaceContext,
+	reconfigureWorkspaceBoardPath: workspaceStateMocks.reconfigureWorkspaceBoardPath,
+}));
+
+vi.mock("../../../src/fs/locked-file-system.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../../src/fs/locked-file-system.js")>();
+	return {
+		...actual,
+		lockedFileSystem: {
+			...actual.lockedFileSystem,
+			withLock: lockedFileSystemMocks.withLock,
+		},
+	};
+});
 
 vi.mock("@clinebot/core", () => ({
 	addLocalProvider: oauthMocks.addLocalProvider,
@@ -121,6 +154,12 @@ vi.mock("../../../src/server/browser.js", () => ({
 	openInBrowser: browserMocks.openInBrowser,
 }));
 
+vi.mock("../../../src/config/runtime-config.js", () => ({
+	saveRuntimeConfig: runtimeConfigMocks.saveRuntimeConfig,
+	updateGlobalRuntimeConfig: runtimeConfigMocks.updateGlobalRuntimeConfig,
+	updateRuntimeConfig: runtimeConfigMocks.updateRuntimeConfig,
+}));
+
 import { createRuntimeApi } from "../../../src/trpc/runtime-api";
 
 function createSummary(overrides: Partial<RuntimeTaskSessionSummary> = {}): RuntimeTaskSessionSummary {
@@ -150,6 +189,7 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		agentAutonomousModeEnabled: true,
 		readyForReviewNotificationsEnabled: true,
 		shortcuts: [],
+		boardPath: null,
 		commitPromptTemplate: "commit",
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
@@ -251,6 +291,12 @@ describe("createRuntimeApi startTaskSession", () => {
 		llmsModelMocks.getAllProviders.mockReset();
 		llmsModelMocks.getModelsForProvider.mockReset();
 		browserMocks.openInBrowser.mockReset();
+		runtimeConfigMocks.saveRuntimeConfig.mockReset();
+		runtimeConfigMocks.updateGlobalRuntimeConfig.mockReset();
+		runtimeConfigMocks.updateRuntimeConfig.mockReset();
+		workspaceStateMocks.loadWorkspaceContext.mockReset();
+		workspaceStateMocks.reconfigureWorkspaceBoardPath.mockReset();
+		lockedFileSystemMocks.withLock.mockReset();
 
 		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
 			agentId: "claude",
@@ -327,6 +373,17 @@ describe("createRuntimeApi startTaskSession", () => {
 			}),
 		});
 		setSelectedProviderSettings(null);
+		runtimeConfigMocks.updateGlobalRuntimeConfig.mockImplementation(async (current, updates) => ({
+			...current,
+			...updates,
+		}));
+		runtimeConfigMocks.updateRuntimeConfig.mockImplementation(async (_cwd, updates) => ({
+			...createRuntimeConfigState(),
+			...updates,
+		}));
+		runtimeConfigMocks.saveRuntimeConfig.mockImplementation(async (_cwd, config) => config);
+		lockedFileSystemMocks.withLock.mockImplementation(async (_request, operation) => await operation());
+		workspaceStateMocks.reconfigureWorkspaceBoardPath.mockResolvedValue(undefined);
 		llmsModelMocks.getAllProviders.mockResolvedValue([
 			{
 				id: "cline",
@@ -2691,5 +2748,109 @@ describe("createRuntimeApi getFeaturebaseToken", () => {
 		expect(response).toEqual({ featurebaseJwt: "refreshed-jwt-456" });
 		expect(clineAccountMocks.fetchFeaturebaseToken).toHaveBeenCalledTimes(2);
 		expect(oauthMocks.getValidClineCredentials).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("createRuntimeApi saveConfig", () => {
+	it("migrates the board before persisting the new board-path config while holding the workspace lock", async () => {
+		const currentConfig = createRuntimeConfigState();
+		const nextShortcuts = [{ label: "Ship", command: "npm run ship", icon: "rocket" }];
+		const nextConfig = {
+			...currentConfig,
+			selectedAgentId: "codex" as const,
+			shortcuts: nextShortcuts,
+			boardPath: ".kanban/board.json",
+			commitPromptTemplate: "next commit",
+			openPrPromptTemplate: "next pr",
+		};
+		const setActiveRuntimeConfig = vi.fn();
+		runtimeConfigMocks.updateRuntimeConfig.mockResolvedValue(nextConfig);
+		const callOrder: string[] = [];
+		workspaceStateMocks.loadWorkspaceContext.mockResolvedValue({
+			repoPath: "/tmp/repo",
+			workspaceId: "workspace-1",
+			statePath: "/tmp/kanban/workspaces/workspace-1",
+			git: {
+				currentBranch: "main",
+				defaultBranch: "main",
+				branches: ["main"],
+			},
+		});
+		workspaceStateMocks.getWorkspacesRootPath.mockReturnValue("/tmp/kanban/workspaces");
+		lockedFileSystemMocks.withLock.mockImplementation(async (_request, operation) => {
+			callOrder.push("withLock");
+			return await operation();
+		});
+		workspaceStateMocks.reconfigureWorkspaceBoardPath.mockImplementation(async (_cwd, _previous, _next, options) => {
+			callOrder.push(options?.alreadyLocked ? "reconfigure-locked" : "reconfigure-unlocked");
+		});
+		runtimeConfigMocks.updateRuntimeConfig.mockImplementation(async (_cwd, updates) => {
+			callOrder.push("update");
+			return {
+				...createRuntimeConfigState(),
+				...updates,
+			};
+		});
+		agentRegistryMocks.buildRuntimeConfigResponse.mockImplementation((config) => config);
+
+		const api = createRuntimeApi({
+			getActiveWorkspaceId: () => "workspace-1",
+			getActiveRuntimeConfig: () => currentConfig,
+			loadScopedRuntimeConfig: async () => currentConfig,
+			setActiveRuntimeConfig,
+			getScopedTerminalManager: async () => ({}) as never,
+			getScopedClineTaskSessionService: async () => createClineTaskSessionServiceMock() as never,
+			resolveInteractiveShellCommand: () => ({ binary: "bash", args: [] }),
+			runCommand: async () => ({
+				exitCode: 0,
+				stdout: "",
+				stderr: "",
+				combinedOutput: "",
+				durationMs: 0,
+			}),
+		});
+
+		await expect(
+			api.saveConfig(
+				{
+					workspaceId: "workspace-1",
+					workspacePath: "/tmp/repo",
+				},
+				{
+					selectedAgentId: "codex",
+					shortcuts: nextShortcuts,
+					boardPath: ".kanban/board.json",
+					commitPromptTemplate: "next commit",
+					openPrPromptTemplate: "next pr",
+				},
+			),
+		).resolves.toMatchObject({
+			boardPath: ".kanban/board.json",
+		});
+
+		expect(workspaceStateMocks.loadWorkspaceContext).toHaveBeenCalledWith("/tmp/repo");
+		expect(workspaceStateMocks.reconfigureWorkspaceBoardPath).toHaveBeenCalledWith(
+			"/tmp/repo",
+			null,
+			".kanban/board.json",
+			{ alreadyLocked: true },
+		);
+		expect(lockedFileSystemMocks.withLock).toHaveBeenCalledWith(
+			{
+				path: "/tmp/kanban/workspaces/workspace-1",
+				type: "directory",
+				lockfilePath: "/tmp/kanban/workspaces/workspace-1.lock",
+			},
+			expect.any(Function),
+		);
+		expect(callOrder).toEqual(["withLock", "reconfigure-locked", "update"]);
+		expect(runtimeConfigMocks.updateRuntimeConfig).toHaveBeenCalledWith("/tmp/repo", {
+			selectedAgentId: "codex",
+			shortcuts: nextShortcuts,
+			boardPath: ".kanban/board.json",
+			commitPromptTemplate: "next commit",
+			openPrPromptTemplate: "next pr",
+		});
+		expect(setActiveRuntimeConfig).toHaveBeenCalledWith(nextConfig);
 	});
 });

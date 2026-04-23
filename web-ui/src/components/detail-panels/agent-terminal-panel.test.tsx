@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
-import type { RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
+import type { RuntimeTaskSessionSummary, RuntimeTaskWorkspaceInfoResponse } from "@/runtime/types";
 
 let mockWorkspaceInfo: RuntimeTaskWorkspaceInfoResponse | undefined;
 
@@ -20,6 +20,25 @@ vi.mock("@/terminal/use-persistent-terminal-session", () => ({
 		stopTerminal: vi.fn(async () => {}),
 	}),
 }));
+
+function createSummary(state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionSummary {
+	return {
+		taskId: "task-1",
+		state,
+		agentId: "claude",
+		workspacePath: "/tmp/worktree",
+		pid: null,
+		startedAt: 1,
+		updatedAt: 1,
+		lastOutputAt: 1,
+		reviewReason: null,
+		exitCode: null,
+		lastHookAt: null,
+		latestHookActivity: null,
+		latestTurnCheckpoint: null,
+		previousTurnCheckpoint: null,
+	};
+}
 
 describe("AgentTerminalPanel", () => {
 	let container: HTMLDivElement;

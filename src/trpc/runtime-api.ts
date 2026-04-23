@@ -39,7 +39,9 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
+import { lockedFileSystem } from "../fs/locked-file-system";
 import { openInBrowser } from "../server/browser";
+import { getWorkspacesRootPath, loadWorkspaceContext, reconfigureWorkspaceBoardPath } from "../state/workspace-state";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { resolveTaskCwd } from "../workspace/task-worktree";
@@ -122,7 +124,34 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			const parsed = parseRuntimeConfigSaveRequest(input);
 			let nextRuntimeConfig: RuntimeConfigState;
 			if (workspaceScope) {
-				nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, parsed);
+				const nextBoardPath = parsed.boardPath;
+				if (nextBoardPath !== undefined) {
+					const workspaceContext = await loadWorkspaceContext(workspaceScope.workspacePath);
+					nextRuntimeConfig = await lockedFileSystem.withLock(
+						{
+							path: workspaceContext.statePath,
+							type: "directory",
+							lockfilePath: join(getWorkspacesRootPath(), `${workspaceContext.workspaceId}.lock`),
+						},
+						async () => {
+							const currentRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+							if (currentRuntimeConfig.boardPath !== nextBoardPath) {
+								await reconfigureWorkspaceBoardPath(
+									workspaceScope.workspacePath,
+									currentRuntimeConfig.boardPath,
+									nextBoardPath,
+									{ alreadyLocked: true },
+								);
+							}
+							return await updateRuntimeConfig(workspaceScope.workspacePath, {
+								...parsed,
+								boardPath: nextBoardPath,
+							});
+						},
+					);
+				} else {
+					nextRuntimeConfig = await updateRuntimeConfig(workspaceScope.workspacePath, parsed);
+				}
 			} else {
 				const activeRuntimeConfig = deps.getActiveRuntimeConfig?.();
 				if (!activeRuntimeConfig) {

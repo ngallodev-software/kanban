@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
+import { updateRuntimeConfig } from "../../src/config/runtime-config";
 import type { RuntimeBoardData, RuntimeTaskSessionSummary } from "../../src/core/api-contract";
 import type { WorkspaceStateConflictError } from "../../src/state/workspace-state";
 import {
@@ -262,6 +262,64 @@ describe.sequential("workspace-state integration", () => {
 		});
 	});
 
+	it("loads and saves board state from a configured custom board path", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-custom-board-path-");
+			try {
+				const workspacePath = join(sandboxRoot, "project-custom-board");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				await updateRuntimeConfig(workspacePath, {
+					boardPath: ".kanban/board.json",
+				});
+
+				await saveWorkspaceState(workspacePath, {
+					board: createBoard("Custom path task"),
+					sessions: {},
+					expectedRevision: 0,
+				});
+
+				const context = await loadWorkspaceContext(workspacePath);
+				const customBoardPath = join(workspacePath, ".kanban", "board.json");
+				expect(existsSync(customBoardPath)).toBe(true);
+				expect(existsSync(join(context.statePath, "board.json"))).toBe(false);
+
+				const loaded = await loadWorkspaceState(workspacePath);
+				expect(loaded.board.columns[0]?.cards[0]?.prompt).toBe("Custom path task");
+				expect(loaded.statePath).toBe(context.statePath);
+				expect(loaded.boardPath).toBe(customBoardPath);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("omits boardPath from workspace state when the default board location is in use", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-default-board-path-");
+			try {
+				const workspacePath = join(sandboxRoot, "project-default-board");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				const saved = await saveWorkspaceState(workspacePath, {
+					board: createBoard("Default path task"),
+					sessions: {},
+					expectedRevision: 0,
+				});
+
+				const loaded = await loadWorkspaceState(workspacePath);
+				expect(saved.revision).toBe(1);
+				expect(loaded.board.columns[0]?.cards[0]?.prompt).toBe("Default path task");
+				expect(loaded.statePath).toBeTruthy();
+				expect(loaded).not.toHaveProperty("boardPath");
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
 	it("fails loudly when persisted board data is malformed", async () => {
 		await withTemporaryHome(async () => {
 			const { path: sandboxRoot, cleanup } = createTempDir("kanban-malformed-board-");
@@ -301,6 +359,40 @@ describe.sequential("workspace-state integration", () => {
 				);
 
 				await expect(loadWorkspaceState(workspacePath)).rejects.toThrow("board.json");
+				await expect(loadWorkspaceState(workspacePath)).rejects.toThrow(/id|baseRef/);
+			} finally {
+				cleanup();
+			}
+		});
+	});
+
+	it("fails loudly when a configured custom board file is malformed", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-malformed-custom-board-");
+			try {
+				const workspacePath = join(sandboxRoot, "project-bad-custom-board");
+				mkdirSync(workspacePath, { recursive: true });
+				initGitRepository(workspacePath);
+
+				await updateRuntimeConfig(workspacePath, {
+					boardPath: ".kanban/board.json",
+				});
+
+				const customBoardDir = join(workspacePath, ".kanban");
+				mkdirSync(customBoardDir, { recursive: true });
+				writeFileSync(
+					join(customBoardDir, "board.json"),
+					JSON.stringify(
+						{
+							columns: [{ id: "backlog", title: "Backlog", cards: [{ prompt: "Missing ID" }] }],
+						},
+						null,
+						2,
+					),
+					"utf8",
+				);
+
+				await expect(loadWorkspaceState(workspacePath)).rejects.toThrow(join(customBoardDir, "board.json"));
 				await expect(loadWorkspaceState(workspacePath)).rejects.toThrow(/id|baseRef/);
 			} finally {
 				cleanup();
