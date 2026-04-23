@@ -121,6 +121,7 @@ function createWorkspaceInfo(): RuntimeTaskWorkspaceInfoResponse {
 	return {
 		taskId: "task-1",
 		path: "/tmp/task-1",
+		displayPath: "~/.cline/worktrees/task-1/kanban",
 		exists: true,
 		baseRef: "main",
 		branch: "task-1",
