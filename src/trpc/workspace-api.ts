@@ -4,17 +4,17 @@ import type {
 	RuntimeBoardCard,
 	RuntimeBoardColumnId,
 	RuntimeBoardData,
+	RuntimeGitCheckoutResponse,
+	RuntimeGitDiscardResponse,
+	RuntimeGitSummaryResponse,
+	RuntimeGitSyncAction,
+	RuntimeGitSyncResponse,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
 	RuntimeTaskImportRequest,
 	RuntimeTaskImportResponse,
 	RuntimeTaskImportTask,
 	RuntimeTaskSessionStartResponse,
-	RuntimeGitCheckoutResponse,
-	RuntimeGitDiscardResponse,
-	RuntimeGitSummaryResponse,
-	RuntimeGitSyncAction,
-	RuntimeGitSyncResponse,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
 	RuntimeWorkspaceFileSearchResponse,
@@ -88,9 +88,12 @@ function normalizeImportTaskIntent(
 	task: RuntimeTaskImportTask,
 	state: RuntimeWorkspaceStateResponse,
 ): NormalizedImportTaskIntent {
-	const baseRef = task.baseRef?.trim() ?? state.git.currentBranch ?? state.git.defaultBranch ?? state.git.branches[0] ?? "";
+	const baseRef =
+		task.baseRef?.trim() ?? state.git.currentBranch ?? state.git.defaultBranch ?? state.git.branches[0] ?? "";
 	if (!baseRef) {
-		throw new Error(`Imported task "${task.externalTaskKey}" requires baseRef because no workspace default branch is available.`);
+		throw new Error(
+			`Imported task "${task.externalTaskKey}" requires baseRef because no workspace default branch is available.`,
+		);
 	}
 	return {
 		externalTaskKey: task.externalTaskKey,
@@ -190,7 +193,58 @@ function findDependencyByEndpoints(
 	fromTaskId: string,
 	toTaskId: string,
 ): RuntimeBoardData["dependencies"][number] | null {
-	return board.dependencies.find((dependency) => dependency.fromTaskId === fromTaskId && dependency.toTaskId === toTaskId) ?? null;
+	return (
+		board.dependencies.find(
+			(dependency) => dependency.fromTaskId === fromTaskId && dependency.toTaskId === toTaskId,
+		) ?? null
+	);
+}
+
+function createTaskPairKey(firstTaskId: string, secondTaskId: string): string {
+	return [firstTaskId, secondTaskId].sort().join("::");
+}
+
+function resolveImportDependencyPairKey(
+	board: RuntimeBoardData,
+	firstTaskId: string,
+	secondTaskId: string,
+): string | null {
+	const firstColumnId = getTaskColumnId(board, firstTaskId);
+	const secondColumnId = getTaskColumnId(board, secondTaskId);
+	if (!firstColumnId || !secondColumnId || firstColumnId === "trash" || secondColumnId === "trash") {
+		return null;
+	}
+	const firstIsBacklog = firstColumnId === "backlog";
+	const secondIsBacklog = secondColumnId === "backlog";
+	if (firstIsBacklog && secondIsBacklog) {
+		return createTaskPairKey(firstTaskId, secondTaskId);
+	}
+	if (!firstIsBacklog && !secondIsBacklog) {
+		return null;
+	}
+	return firstIsBacklog ? `${firstTaskId}::${secondTaskId}` : `${secondTaskId}::${firstTaskId}`;
+}
+
+function findImportReplayDependency(
+	board: RuntimeBoardData,
+	firstTaskId: string,
+	secondTaskId: string,
+): RuntimeBoardData["dependencies"][number] | null {
+	const exact = findDependencyByEndpoints(board, firstTaskId, secondTaskId);
+	if (exact) {
+		return exact;
+	}
+	const pairKey = resolveImportDependencyPairKey(board, firstTaskId, secondTaskId);
+	if (!pairKey) {
+		return null;
+	}
+	for (const dependency of board.dependencies) {
+		const dependencyPairKey = resolveImportDependencyPairKey(board, dependency.fromTaskId, dependency.toTaskId);
+		if (dependencyPairKey === pairKey) {
+			return dependency;
+		}
+	}
+	return null;
 }
 
 function createImportFailure(
@@ -574,169 +628,182 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		importTasks: async (workspaceScope, input) => {
 			const body = parseTaskImportRequest(input);
-			const mutation = await mutateWorkspaceState<RuntimeTaskImportResponse>(workspaceScope.workspacePath, (state) => {
-				const seenTaskKeys = new Set<string>();
-				for (const task of body.tasks) {
-					if (seenTaskKeys.has(task.externalTaskKey)) {
-						return {
-							board: state.board,
-							value: createImportFailure(body.version, {
-								code: "duplicate_task_key",
-								message: `Imported task key "${task.externalTaskKey}" is duplicated in the request.`,
-								externalTaskKey: task.externalTaskKey,
-							}),
-							save: false,
-						};
-					}
-					seenTaskKeys.add(task.externalTaskKey);
-				}
-
-				let nextBoard = state.board;
-				const taskMappings: RuntimeTaskImportResponse["taskMappings"] = [];
-				const linkResults: RuntimeTaskImportResponse["linkResults"] = [];
-				const startResults: RuntimeTaskImportResponse["startResults"] = [];
-				const taskKeyToTaskId = new Map<string, string>();
-
-				for (const task of body.tasks) {
-					const normalizedTask = normalizeImportTaskIntent(task, state);
-					const existing = findTaskRecordByExternalTaskKey(nextBoard, normalizedTask.externalTaskKey);
-					if (existing) {
-						if (!isImportedTaskCompatible(existing.task, normalizedTask)) {
+			const mutation = await mutateWorkspaceState<RuntimeTaskImportResponse>(
+				workspaceScope.workspacePath,
+				(state) => {
+					const seenTaskKeys = new Set<string>();
+					for (const task of body.tasks) {
+						if (seenTaskKeys.has(task.externalTaskKey)) {
 							return {
 								board: state.board,
 								value: createImportFailure(body.version, {
-									code: "conflicting_task_intent",
-									message: `Imported task "${normalizedTask.externalTaskKey}" conflicts with an existing Kanban task.`,
-									externalTaskKey: normalizedTask.externalTaskKey,
+									code: "duplicate_task_key",
+									message: `Imported task key "${task.externalTaskKey}" is duplicated in the request.`,
+									externalTaskKey: task.externalTaskKey,
 								}),
 								save: false,
 							};
 						}
-						taskKeyToTaskId.set(normalizedTask.externalTaskKey, existing.task.id);
+						seenTaskKeys.add(task.externalTaskKey);
+					}
+
+					let nextBoard = state.board;
+					const taskMappings: RuntimeTaskImportResponse["taskMappings"] = [];
+					const linkResults: RuntimeTaskImportResponse["linkResults"] = [];
+					const startResults: RuntimeTaskImportResponse["startResults"] = [];
+					const taskKeyToTaskId = new Map<string, string>();
+
+					for (const task of body.tasks) {
+						const normalizedTask = normalizeImportTaskIntent(task, state);
+						const existing = findTaskRecordByExternalTaskKey(nextBoard, normalizedTask.externalTaskKey);
+						if (existing) {
+							if (!isImportedTaskCompatible(existing.task, normalizedTask)) {
+								return {
+									board: state.board,
+									value: createImportFailure(body.version, {
+										code: "conflicting_task_intent",
+										message: `Imported task "${normalizedTask.externalTaskKey}" conflicts with an existing Kanban task.`,
+										externalTaskKey: normalizedTask.externalTaskKey,
+									}),
+									save: false,
+								};
+							}
+							taskKeyToTaskId.set(normalizedTask.externalTaskKey, existing.task.id);
+							taskMappings.push({
+								externalTaskKey: normalizedTask.externalTaskKey,
+								taskId: existing.task.id,
+								columnId: existing.columnId,
+								created: false,
+							});
+							continue;
+						}
+
+						const created = addTaskToColumn(
+							nextBoard,
+							"backlog",
+							{
+								externalTaskKey: normalizedTask.externalTaskKey,
+								title: normalizedTask.title,
+								prompt: normalizedTask.prompt,
+								startInPlanMode: normalizedTask.startInPlanMode,
+								autoReviewEnabled: normalizedTask.autoReviewEnabled,
+								autoReviewMode: normalizedTask.autoReviewMode,
+								images: normalizedTask.images,
+								agentId: normalizedTask.agentId,
+								clineSettings: normalizedTask.clineSettings,
+								baseRef: normalizedTask.baseRef,
+							},
+							() => crypto.randomUUID(),
+						);
+						nextBoard = created.board;
+						taskKeyToTaskId.set(normalizedTask.externalTaskKey, created.task.id);
 						taskMappings.push({
 							externalTaskKey: normalizedTask.externalTaskKey,
-							taskId: existing.task.id,
-							columnId: existing.columnId,
-							created: false,
-						});
-						continue;
-					}
-
-					const created = addTaskToColumn(
-						nextBoard,
-						"backlog",
-						{
-							externalTaskKey: normalizedTask.externalTaskKey,
-							title: normalizedTask.title,
-							prompt: normalizedTask.prompt,
-							startInPlanMode: normalizedTask.startInPlanMode,
-							autoReviewEnabled: normalizedTask.autoReviewEnabled,
-							autoReviewMode: normalizedTask.autoReviewMode,
-							images: normalizedTask.images,
-							agentId: normalizedTask.agentId,
-							clineSettings: normalizedTask.clineSettings,
-							baseRef: normalizedTask.baseRef,
-						},
-						() => crypto.randomUUID(),
-					);
-					nextBoard = created.board;
-					taskKeyToTaskId.set(normalizedTask.externalTaskKey, created.task.id);
-					taskMappings.push({
-						externalTaskKey: normalizedTask.externalTaskKey,
-						taskId: created.task.id,
-						columnId: "backlog",
-						created: true,
-					});
-				}
-
-				for (const link of body.links ?? []) {
-					const fromTaskId = taskKeyToTaskId.get(link.fromExternalTaskKey);
-					const toTaskId = taskKeyToTaskId.get(link.toExternalTaskKey);
-					if (!fromTaskId || !toTaskId) {
-						return {
-							board: state.board,
-							value: createImportFailure(body.version, {
-								code: "missing_link_task",
-								message: `Imported link "${link.fromExternalTaskKey}" -> "${link.toExternalTaskKey}" references an unknown task key.`,
-								fromExternalTaskKey: link.fromExternalTaskKey,
-								toExternalTaskKey: link.toExternalTaskKey,
-							}),
-							save: false,
-						};
-					}
-					const linked = addTaskDependency(nextBoard, fromTaskId, toTaskId);
-					if (linked.added && linked.dependency) {
-						nextBoard = linked.board;
-						linkResults.push({
-							fromExternalTaskKey: link.fromExternalTaskKey,
-							toExternalTaskKey: link.toExternalTaskKey,
-							dependencyId: linked.dependency.id,
+							taskId: created.task.id,
+							columnId: "backlog",
 							created: true,
 						});
-						continue;
 					}
-					if (linked.reason === "duplicate") {
-						const existingDependency = findDependencyByEndpoints(nextBoard, fromTaskId, toTaskId);
-						if (!existingDependency) {
+
+					for (const link of body.links ?? []) {
+						const fromTaskId = taskKeyToTaskId.get(link.fromExternalTaskKey);
+						const toTaskId = taskKeyToTaskId.get(link.toExternalTaskKey);
+						if (!fromTaskId || !toTaskId) {
 							return {
 								board: state.board,
 								value: createImportFailure(body.version, {
-									code: "invalid_link",
-									message: `Imported link "${link.fromExternalTaskKey}" -> "${link.toExternalTaskKey}" could not be reconciled to an existing dependency.`,
+									code: "missing_link_task",
+									message: `Imported link "${link.fromExternalTaskKey}" -> "${link.toExternalTaskKey}" references an unknown task key.`,
 									fromExternalTaskKey: link.fromExternalTaskKey,
 									toExternalTaskKey: link.toExternalTaskKey,
 								}),
 								save: false,
 							};
 						}
-						linkResults.push({
-							fromExternalTaskKey: link.fromExternalTaskKey,
-							toExternalTaskKey: link.toExternalTaskKey,
-							dependencyId: existingDependency.id,
-							created: false,
-						});
-						continue;
-					}
-					return {
-						board: state.board,
-						value: createImportFailure(body.version, {
-							code: "invalid_link",
-							message: `Imported link "${link.fromExternalTaskKey}" -> "${link.toExternalTaskKey}" is invalid for the current board state (${linked.reason ?? "unknown"}).`,
-							fromExternalTaskKey: link.fromExternalTaskKey,
-							toExternalTaskKey: link.toExternalTaskKey,
-						}),
-						save: false,
-					};
-				}
-
-				for (const externalTaskKey of body.startTaskExternalKeys ?? []) {
-					const taskId = taskKeyToTaskId.get(externalTaskKey);
-					if (!taskId) {
+						const existingDependency = findImportReplayDependency(nextBoard, fromTaskId, toTaskId);
+						if (existingDependency) {
+							linkResults.push({
+								fromExternalTaskKey: link.fromExternalTaskKey,
+								toExternalTaskKey: link.toExternalTaskKey,
+								dependencyId: existingDependency.id,
+								created: false,
+							});
+							continue;
+						}
+						const linked = addTaskDependency(nextBoard, fromTaskId, toTaskId);
+						if (linked.added && linked.dependency) {
+							nextBoard = linked.board;
+							linkResults.push({
+								fromExternalTaskKey: link.fromExternalTaskKey,
+								toExternalTaskKey: link.toExternalTaskKey,
+								dependencyId: linked.dependency.id,
+								created: true,
+							});
+							continue;
+						}
+						if (linked.reason === "duplicate") {
+							const duplicateDependency = findImportReplayDependency(nextBoard, fromTaskId, toTaskId);
+							if (!duplicateDependency) {
+								return {
+									board: state.board,
+									value: createImportFailure(body.version, {
+										code: "invalid_link",
+										message: `Imported link "${link.fromExternalTaskKey}" -> "${link.toExternalTaskKey}" could not be reconciled to an existing dependency.`,
+										fromExternalTaskKey: link.fromExternalTaskKey,
+										toExternalTaskKey: link.toExternalTaskKey,
+									}),
+									save: false,
+								};
+							}
+							linkResults.push({
+								fromExternalTaskKey: link.fromExternalTaskKey,
+								toExternalTaskKey: link.toExternalTaskKey,
+								dependencyId: duplicateDependency.id,
+								created: false,
+							});
+							continue;
+						}
 						return {
 							board: state.board,
 							value: createImportFailure(body.version, {
-								code: "invalid_start_task",
-								message: `Imported start task key "${externalTaskKey}" does not resolve to a task.`,
-								externalTaskKey,
+								code: "invalid_link",
+								message: `Imported link "${link.fromExternalTaskKey}" -> "${link.toExternalTaskKey}" is invalid for the current board state (${linked.reason ?? "unknown"}).`,
+								fromExternalTaskKey: link.fromExternalTaskKey,
+								toExternalTaskKey: link.toExternalTaskKey,
 							}),
 							save: false,
 						};
 					}
-				}
 
-				return {
-					board: nextBoard,
-					value: {
-						version: body.version,
-						ok: true,
-						applied: true,
-						taskMappings,
-						linkResults,
-						startResults,
-					},
-					save: taskMappings.some((mapping) => mapping.created) || linkResults.some((result) => result.created),
-				};
-			});
+					for (const externalTaskKey of body.startTaskExternalKeys ?? []) {
+						const taskId = taskKeyToTaskId.get(externalTaskKey);
+						if (!taskId) {
+							return {
+								board: state.board,
+								value: createImportFailure(body.version, {
+									code: "invalid_start_task",
+									message: `Imported start task key "${externalTaskKey}" does not resolve to a task.`,
+									externalTaskKey,
+								}),
+								save: false,
+							};
+						}
+					}
+
+					return {
+						board: nextBoard,
+						value: {
+							version: body.version,
+							ok: true,
+							applied: true,
+							taskMappings,
+							linkResults,
+							startResults,
+						},
+						save: taskMappings.some((mapping) => mapping.created) || linkResults.some((result) => result.created),
+					};
+				},
+			);
 
 			const response: RuntimeTaskImportResponse = mutation.value;
 			if (!response.ok) {
@@ -764,20 +831,29 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				}
 			}
 
+			const startResults = [...response.startResults];
+			let responseOk: boolean = response.ok;
+			let responseError: RuntimeTaskImportResponse["error"] | undefined = response.error;
+
 			for (const externalTaskKey of body.startTaskExternalKeys ?? []) {
 				const task = taskByExternalKey.get(externalTaskKey);
 				if (!task) {
-					response.ok = false;
-					response.error = {
+					responseOk = false;
+					responseError = {
 						code: "invalid_start_task",
 						message: `Imported start task key "${externalTaskKey}" does not resolve to a task.`,
 						externalTaskKey,
 					};
-					return response;
+					return {
+						...response,
+						ok: responseOk,
+						error: responseError,
+						startResults,
+					};
 				}
 				const columnId = getTaskColumnId(latestState.board, task.id);
 				if (columnId !== "backlog" && columnId !== "in_progress") {
-					response.startResults.push({
+					startResults.push({
 						externalTaskKey,
 						taskId: task.id,
 						ok: false,
@@ -786,7 +862,7 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 					continue;
 				}
 				const started = await startImportedTask(workspaceScope, task);
-				response.startResults.push({
+				startResults.push({
 					externalTaskKey,
 					taskId: task.id,
 					ok: started.ok && Boolean(started.summary),
@@ -795,14 +871,19 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				});
 			}
 
-			if (response.startResults.some((result: RuntimeTaskImportResponse["startResults"][number]) => !result.ok)) {
-				response.ok = false;
+			if (startResults.some((result: RuntimeTaskImportResponse["startResults"][number]) => !result.ok)) {
+				responseOk = false;
 			}
-			if (response.startResults.length > 0) {
+			if (startResults.length > 0) {
 				await deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
 				await deps.broadcastRuntimeProjectsUpdated(workspaceScope.workspaceId);
 			}
-			return response;
+			return {
+				...response,
+				ok: responseOk,
+				...(responseError ? { error: responseError } : {}),
+				startResults,
+			};
 		},
 		loadState: async (workspaceScope) => {
 			return await deps.buildWorkspaceStateSnapshot(workspaceScope.workspaceId, workspaceScope.workspacePath);
