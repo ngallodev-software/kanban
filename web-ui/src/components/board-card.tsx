@@ -19,7 +19,6 @@ import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceInfoValue, useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
 import type { BoardCard as BoardCardModel, BoardColumnId } from "@/types";
 import { getTaskAutoReviewCancelButtonLabel } from "@/types";
-import { formatPathForDisplay } from "@/utils/path-display";
 import { useMeasure } from "@/utils/react-use";
 import {
 	clampTextWithInlineSuffix,
@@ -451,9 +450,9 @@ export function BoardCard({
 	const reviewWorkspacePath = reviewWorkspaceSnapshot?.displayPath
 		? reviewWorkspaceSnapshot.displayPath
 		: reviewWorkspaceSnapshot
-			? formatPathForDisplay(reviewWorkspaceSnapshot.path)
+			? reviewWorkspaceSnapshot.path
 			: reviewWorkspaceInfo?.displayPath
-				? formatPathForDisplay(reviewWorkspaceInfo.displayPath)
+				? reviewWorkspaceInfo.displayPath
 				: isTrashCard
 					? reconstructTaskWorktreeDisplayPath(card.id, workspacePath)
 					: null;
