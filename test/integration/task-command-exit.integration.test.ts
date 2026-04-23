@@ -424,6 +424,78 @@ describe("source task commands", () => {
 		}
 	});
 
+	it("fails locally with a clear validation error for malformed import payloads", { timeout: 60_000 }, async () => {
+		const { path: homeDir, cleanup: cleanupHome } = createTempDir("kanban-home-task-import-invalid-");
+		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-task-import-invalid-");
+
+		try {
+			initGitRepository(projectPath);
+			writeFileSync(join(projectPath, "README.md"), "# Task Import Invalid Test\n", "utf8");
+			commitAll(projectPath, "init");
+
+			const importFilePath = join(projectPath, "kanban-import-invalid.json");
+			writeFileSync(
+				importFilePath,
+				JSON.stringify(
+					{
+						version: "v1",
+						tasks: [{ externalTaskKey: "cli-a", prompt: "   ", baseRef: "main" }],
+					},
+					null,
+					2,
+				),
+				"utf8",
+			);
+
+			const env = createGitTestEnv({
+				HOME: homeDir,
+				USERPROFILE: homeDir,
+				KANBAN_RUNTIME_PORT: String(await getAvailablePort()),
+			});
+
+			const serverProcess = spawn(
+				process.execPath,
+				[
+					"--require",
+					resolveShutdownIpcHookPath(),
+					"--import",
+					resolveTsxLoaderImportSpecifier(),
+					resolve(process.cwd(), "src/cli.ts"),
+					"--no-open",
+				],
+				{
+					cwd: projectPath,
+					env,
+					stdio: ["ignore", "pipe", "pipe", "ipc"],
+				},
+			);
+
+			try {
+				await waitForServerStart(serverProcess);
+
+				const imported = await runCliCommandAndCollectOutput({
+					args: ["task", "import", "--file", importFilePath, "--project-path", projectPath],
+					cwd: projectPath,
+					env,
+				});
+
+				expect(imported.didExit).toBe(true);
+				expect(imported.exitCode).toBe(1);
+				expect(`${imported.stdout}\n${imported.stderr}`).toContain("prompt cannot be empty");
+			} finally {
+				await requestGracefulShutdown(serverProcess);
+				const stopped = await waitForExit(serverProcess, 5_000);
+				if (!stopped) {
+					serverProcess.kill("SIGKILL");
+					await waitForExit(serverProcess, 5_000);
+				}
+			}
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("opens only for launch invocations", { timeout: 60_000 }, async () => {
 		if (process.platform === "win32") {
 			return;
