@@ -26,6 +26,7 @@ import {
 	type RuntimeTaskSessionInputRequest,
 	type RuntimeTaskSessionStartRequest,
 	type RuntimeTaskSessionStopRequest,
+	type RuntimeTaskImportRequest,
 	type RuntimeTaskWorkspaceInfoRequest,
 	type RuntimeTerminalWsClientMessage,
 	type RuntimeWorkspaceChangesRequest,
@@ -58,6 +59,7 @@ import {
 	runtimeTaskSessionInputRequestSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStopRequestSchema,
+	runtimeTaskImportRequestSchema,
 	runtimeTaskWorkspaceInfoRequestSchema,
 	runtimeTerminalWsClientMessageSchema,
 	runtimeWorkspaceChangesRequestSchema,
@@ -255,6 +257,58 @@ export function parseTaskSessionInputRequest(value: unknown): RuntimeTaskSession
 	return {
 		...parsed,
 		taskId,
+	};
+}
+
+export function parseTaskImportRequest(value: unknown): RuntimeTaskImportRequest {
+	const parsed = parseWithSchema(runtimeTaskImportRequestSchema, value);
+	const tasks = parsed.tasks.map((task) => {
+		const externalTaskKey = task.externalTaskKey.trim();
+		if (!externalTaskKey) {
+			throw new Error("Imported task externalTaskKey cannot be empty.");
+		}
+		const prompt = task.prompt.trim();
+		if (!prompt) {
+			throw new Error(`Imported task "${externalTaskKey}" prompt cannot be empty.`);
+		}
+		const title = task.title?.trim();
+		const baseRef = task.baseRef?.trim();
+		return {
+			...task,
+			externalTaskKey,
+			prompt,
+			...(title ? { title } : {}),
+			...(baseRef ? { baseRef } : {}),
+		};
+	});
+
+	const links = (parsed.links ?? []).map((link) => {
+		const fromExternalTaskKey = link.fromExternalTaskKey.trim();
+		const toExternalTaskKey = link.toExternalTaskKey.trim();
+		if (!fromExternalTaskKey || !toExternalTaskKey) {
+			throw new Error("Imported task links require non-empty fromExternalTaskKey and toExternalTaskKey.");
+		}
+		return {
+			fromExternalTaskKey,
+			toExternalTaskKey,
+		};
+	});
+
+	const startTaskExternalKeys = [...new Set(
+		(parsed.startTaskExternalKeys ?? []).map((key) => {
+			const normalizedKey = key.trim();
+			if (!normalizedKey) {
+				throw new Error("Imported startTaskExternalKeys entries cannot be empty.");
+			}
+			return normalizedKey;
+		}),
+	)];
+
+	return {
+		version: parsed.version,
+		tasks,
+		...(links.length > 0 ? { links } : {}),
+		...(startTaskExternalKeys.length > 0 ? { startTaskExternalKeys } : {}),
 	};
 }
 

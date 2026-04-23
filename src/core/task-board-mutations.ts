@@ -13,6 +13,7 @@ import { resolveTaskTitle } from "./task-title";
 
 export interface RuntimeCreateTaskInput {
 	taskId?: string;
+	externalTaskKey?: string;
 	title?: string;
 	prompt: string;
 	startInPlanMode?: boolean;
@@ -301,6 +302,7 @@ export function addTaskToColumn(
 	}
 	const task: RuntimeBoardCard = {
 		id: explicitTaskId || createUniqueTaskId(existingIds, randomUuid),
+		...(input.externalTaskKey ? { externalTaskKey: input.externalTaskKey.trim() } : {}),
 		title: resolveTaskTitle(input.title, prompt),
 		prompt,
 		startInPlanMode: Boolean(input.startInPlanMode),

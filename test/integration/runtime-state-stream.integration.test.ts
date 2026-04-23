@@ -22,6 +22,7 @@ import type {
 	RuntimeStateStreamSnapshotMessage,
 	RuntimeStateStreamTaskReadyForReviewMessage,
 	RuntimeStateStreamWorkspaceStateMessage,
+	RuntimeTaskImportResponse,
 	RuntimeTaskWorkspaceInfoResponse,
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorktreeEnsureResponse,
@@ -807,6 +808,86 @@ describe.sequential("runtime state stream integration", () => {
 			}
 			await server.stop();
 			cleanupRoot();
+			cleanupHome();
+		}
+	}, 30_000);
+
+	it("imports tasks through the live workspace.importTasks tRPC route", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-import-route-");
+		const { path: projectPath, cleanup: cleanupProject } = createTempDir("kanban-project-import-route-");
+
+		mkdirSync(projectPath, { recursive: true });
+		initGitRepository(projectPath);
+
+		const port = await getAvailablePort();
+		const server = await startKanbanServer({
+			cwd: projectPath,
+			homeDir: tempHome,
+			port,
+		});
+
+		let stream: RuntimeStreamClient | null = null;
+
+		try {
+			const runtimeUrl = new URL(server.runtimeUrl);
+			const workspaceId = decodeURIComponent(runtimeUrl.pathname.slice(1));
+			expect(workspaceId).not.toBe("");
+
+			stream = await connectRuntimeStream(
+				`ws://127.0.0.1:${port}/api/runtime/ws?workspaceId=${encodeURIComponent(workspaceId)}`,
+			);
+			await stream.waitForMessage(
+				(message): message is RuntimeStateStreamSnapshotMessage => message.type === "snapshot",
+			);
+
+			const importResponse = await requestJson<RuntimeTaskImportResponse>({
+				baseUrl: `http://127.0.0.1:${port}`,
+				procedure: "workspace.importTasks",
+				type: "mutation",
+				workspaceId,
+				payload: {
+					version: "v1",
+					tasks: [
+						{ externalTaskKey: "route-a", prompt: "Route import task A", baseRef: "main" },
+						{ externalTaskKey: "route-b", prompt: "Route import task B", baseRef: "main" },
+					],
+					links: [{ fromExternalTaskKey: "route-a", toExternalTaskKey: "route-b" }],
+				},
+			});
+			expect(importResponse.status).toBe(200);
+			expect(importResponse.payload.ok).toBe(true);
+			expect(importResponse.payload.applied).toBe(true);
+			expect(importResponse.payload.taskMappings).toHaveLength(2);
+			expect(importResponse.payload.linkResults).toHaveLength(1);
+
+			const workspaceUpdate = await stream.waitForMessage(
+				(message): message is RuntimeStateStreamWorkspaceStateMessage =>
+					message.type === "workspace_state_updated" && message.workspaceId === workspaceId,
+			);
+			expect(workspaceUpdate.workspaceState.board.columns[0]?.cards.map((card) => card.externalTaskKey)).toEqual([
+				"route-b",
+				"route-a",
+			]);
+			expect(workspaceUpdate.workspaceState.board.dependencies).toHaveLength(1);
+
+			const currentWorkspaceState = await requestJson<RuntimeWorkspaceStateResponse>({
+				baseUrl: `http://127.0.0.1:${port}`,
+				procedure: "workspace.getState",
+				type: "query",
+				workspaceId,
+			});
+			expect(currentWorkspaceState.status).toBe(200);
+			expect(currentWorkspaceState.payload.board.columns[0]?.cards.map((card) => card.externalTaskKey)).toEqual([
+				"route-b",
+				"route-a",
+			]);
+			expect(currentWorkspaceState.payload.board.dependencies).toHaveLength(1);
+		} finally {
+			if (stream) {
+				await stream.close();
+			}
+			await server.stop();
+			cleanupProject();
 			cleanupHome();
 		}
 	}, 30_000);
