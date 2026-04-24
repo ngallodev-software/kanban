@@ -69,12 +69,26 @@ interface RootCommandOptions {
 	host?: string;
 	port?: { mode: "fixed"; value: number } | { mode: "auto" };
 	open?: boolean;
+	passcode?: boolean;
 	skipShutdownCleanup?: boolean;
 	update?: boolean;
 	https?: boolean;
 	cert?: string;
 	key?: string;
 	noPasscode?: boolean;
+}
+
+export function normalizeRootCommandOptions(options: RootCommandOptions): CliOptions {
+	return {
+		host: options.host ?? null,
+		port: options.port ?? null,
+		noOpen: options.open === false,
+		skipShutdownCleanup: options.skipShutdownCleanup === true,
+		https: options.https === true,
+		cert: options.cert ?? null,
+		key: options.key ?? null,
+		noPasscode: options.passcode === false || options.noPasscode === true,
+	};
 }
 
 type ShutdownIndicatorResult = "done" | "interrupted" | "failed";
@@ -674,16 +688,7 @@ function createProgram(invocationArgs: string[]): Command {
 			return;
 		}
 		await runMainCommand(
-			{
-				host: options.host ?? null,
-				port: options.port ?? null,
-				noOpen: options.open === false,
-				skipShutdownCleanup: options.skipShutdownCleanup === true,
-				https: options.https === true,
-				cert: options.cert ?? null,
-				key: options.key ?? null,
-				noPasscode: options.noPasscode === true,
-			},
+			normalizeRootCommandOptions(options),
 			shouldAutoOpenBrowser,
 		);
 	});
