@@ -109,7 +109,6 @@ function HookHarness({
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
 	initialSessions?: Record<string, RuntimeTaskSessionSummary>;
 	selectedTaskId?: string | null;
-	initialSessions?: Record<string, RuntimeTaskSessionSummary>;
 	selectedCard?: { card: BoardCard; column: { id: "backlog" | "in_progress" | "review" | "trash" } } | null;
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
 	onSnapshot?: (snapshot: HookSnapshot) => void;
@@ -493,6 +492,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-interrupted-backlog",
+				displayPath: "~/.cline/worktrees/task-interrupted-backlog/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 			},
@@ -672,6 +672,7 @@ describe("useBoardInteractions", () => {
 			response: {
 				ok: true as const,
 				path: "/tmp/task-interrupted",
+				displayPath: "~/.cline/worktrees/task-interrupted/kanban",
 				baseRef: "main",
 				baseCommit: "abc123",
 			},

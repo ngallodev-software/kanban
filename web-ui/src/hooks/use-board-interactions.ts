@@ -389,6 +389,7 @@ export function useBoardInteractions({
 					setTaskWorkspaceInfo({
 						taskId,
 						path: ensured.response.path,
+						displayPath: ensured.response.displayPath,
 						exists: true,
 						baseRef: ensured.response.baseRef,
 						branch: null,
